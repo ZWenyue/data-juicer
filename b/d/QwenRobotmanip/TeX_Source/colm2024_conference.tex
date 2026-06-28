@@ -1,0 +1,331 @@
+\documentclass{article} % For LaTeX2e
+\usepackage{colm2024_conference}
+
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{wrapfig}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{natbib}
+\usepackage{makecell}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{multirow}
+\usepackage{verbatim}
+\usepackage{caption}
+\usepackage{longtable}
+\usepackage{supertabular}
+\usepackage{CJKutf8}
+\usepackage[utf8]{inputenc} % optional
+\usepackage[T1]{fontenc}
+\usepackage[french,vietnamese,mongolian,greek,english]{babel}
+\usepackage{pifont}
+\usepackage{tikz}
+\usepackage{multirow}
+
+\usepackage{enumitem}
+\usepackage{tablefootnote}
+% \usepackage{colortbl}
+\usepackage{xspace}
+\usepackage{textcomp}
+\usepackage{makecell}
+\usepackage{lscape} 
+\usepackage{siunitx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{svg}
+% 设置lstlisting环境的样式
+\lstset{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  showstringspaces=false,
+  commentstyle=\color{gray},
+  keywordstyle=\color{blue}
+}
+% 颜色命令
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+\newcommand{\green}[1]{\textcolor{green}{#1}}
+\newcommand{\blue}[1]{\textcolor{blue}{#1}}
+\newcommand{\orange}[1]{\textcolor{orange}{#1}}
+
+\setlength{\columnsep}{2em}
+\setlength{\parindent}{0em}
+\setlength{\parskip}{0.7em}
+\definecolor{dt}{gray}{0.7}
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+\newcommand{\eg}{\textit{e.g.}\xspace}
+\newcommand{\ie}{\textit{i.e.}\xspace}
+\usepackage{pifont}       % \ding{xx}
+\usepackage{bbding}       % \Checkmark,\XSolid,... (需要和pifont宏包共同使用)
+\usepackage{fontawesome}
+\usepackage{placeins}
+
+\usepackage{scrextend}
+
+\usepackage{tgpagella}
+% \usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\definecolor{mydarkblue}{rgb}{0,0.08,0.45}
+\definecolor{citecolor}{HTML}{0071BC}
+\usepackage{url}            % simple URL typesetting
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{changepage}
+\usepackage{xargs}          % Use more than one optional parameter in a new commands
+\usepackage{wrapfig,lipsum,booktabs}
+\usepackage{longtable}
+\usepackage{subcaption}
+% \usepackage[symbol]{footmisc}
+\usepackage{endnotes}
+% \renewcommand{\thefootnote}{\fnsymbol{footnote}}
+
+\usepackage{pgfplots}
+\usetikzlibrary{pgfplots.groupplots,fit,backgrounds}
+\pgfplotsset{compat=1.3}
+\usepackage{tikz}
+\usetikzlibrary{patterns}
+
+\usepackage{hyperref}
+\definecolor{darkblue}{rgb}{0, 0, 0.5}
+\hypersetup{colorlinks=true, citecolor=darkblue, linkcolor=darkblue, urlcolor=darkblue, bookmarksopen=false, bookmarksnumbered=true}
+
+\usepackage[most]{tcolorbox}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\crefname{section}{\S}{\S\S}
+\Crefname{section}{\S}{\S\S}
+\crefname{subsection}{\S\S}{\S\S}
+\Crefname{subsection}{\S\S}{\S\S}
+\crefformat{section}{\S#2#1#3}
+\crefformat{subsection}{\S\S#2#1#3}
+
+% \crefname{section}{Section}{\S\S}
+% \Crefname{section}{Section}{\S\S}
+\crefname{table}{Table}{Tables}
+\crefname{figure}{Figure}{Figures}
+\crefname{algorithm}{Algorithm}{}
+\crefname{equation}{eq.}{}
+\crefname{appendix}{Appendix}{}
+\crefformat{section}{Section #2#1#3}
+\usepackage{multicol}
+\usepackage{tcolorbox}
+\usepackage{titlesec}
+\titleformat*{\section}{\large\bfseries}
+\usepackage{array} % 导言区
+\newcolumntype{P}[1]{>{\centering\arraybackslash}p{#1}} % 定义一个居中对齐的固定宽度列
+\usepackage{multirow}
+
+% Data Table Usuage
+\usepackage[utf8]{inputenc} % Ensure UTF-8 encoding if you have non-ASCII characters, though not strictly needed for this English text
+% Define a new column type for wrapped text with specific alignment
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}p{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}p{#1}}
+\usepackage{tikz}
+\usetikzlibrary{backgrounds, fit}  % 加载需要的库
+% 可能还需要其他库，如：
+% \usetikzlibrary{positioning, shapes, arrows.meta}
+% Data Table Usuage
+
+\usepackage{adjustbox}
+\definecolor{objblue}{RGB}{3,139,221}  
+\definecolor{attrred}{RGB}{255,67,67}    
+\definecolor{easygreen}{RGB}{0,156,75}  
+\definecolor{middleyellow}{RGB}{242,89,34}  
+\definecolor{hardred}{RGB}{216,56,58}
+% \usepackage[table]{xcolor}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{arydshln}
+% \usepackage{enumitem}
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\concat}{concat}
+\DeclareMathOperator{\layernorm}{LayerNorm}
+\usepackage[most]{tcolorbox}
+\definecolor{BoxBackground}{RGB}{240, 240, 240} % 浅灰色背景
+\definecolor{BoxFrame}{RGB}{0, 0, 0} % 黑色边框
+\definecolor{TitleBackground}{RGB}{0, 0, 0} % 标题背景颜色
+\definecolor{TitleText}{RGB}{255, 255, 255} % 标题文字颜色
+% 设置全局tcolorbox样式
+\tcbset{
+  academicbox/.style={
+    boxsep=5pt,
+    left=2pt,
+    right=2pt,
+    bottom=0.5pt,
+    boxrule=0.5pt,
+    colback=BoxBackground,
+    colframe=BoxFrame,
+    colbacktitle=TitleBackground,
+    coltitle=TitleText,
+    enhanced,
+    attach boxed title to top left={yshift=-0.1in,xshift=0.1in},
+    boxed title style={boxrule=0pt,colframe=white},
+    title={#1},
+  }
+}
+\newtcolorbox{AcademicBox}[1][]{academicbox=#1}
+\newcommand{\nchar}{\textbackslash n}
+% Scaling Egocentric Prediction for Cross-Embodiment Vision-Language-Action Training
+% Qwen-Mani: A Vision-Language-Action Model with Unified Cross-Embodiment Training
+% A Vision-Language-Action Model with Cross-Task, Cross-Embodiment Generalization
+% A Vision-Language-Action Model with Cross-Embodiment Scaling for Generalizable Robot Manipulation
+% Scaling Cross-Embodiment Training towards Strong Generalization
+% Qwen-Manipulation: A Vision-Language-Action Model Capable of Cross-Embodiment Scaling and Generalization
+%%% 围绕cross-embodiment scaling -> strong OOD generalization
+
+% Qwen-Manipulation: A Vision-Language-Action Model with Genuine Out-of-Distribution Generalization
+% \title{Qwen-RobotManip Technical Report:\\ Towards a Generalizable Foundation Model for Robotic Manipulation}
+%\title{Qwen-RobotManip Technical Report: \\ Towards Scaling Robotic Manipulation Data for Foundation Models}
+\title{Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models}
+% Towards a Genuinely Generalizable Foundation Model for Manipulation
+% \title{Qwen-Robotics: Scaling Foundation Models to Generalizable Robot Control}
+
+
+\author{
+\bf Qwen Team}
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+\newcommand{\ours}{\textsc{Qwen-RobotManip}\xspace}
+
+
+\begin{document}
+
+\maketitle
+
+  % ▎ Foundation models like VLMs scale because they learn under an aligned formulation — diverse data is cast into a shared
+  % ▎ predictive format and trained under a unified objective, so that different sources reinforce one another.
+  
+\begin{abstract}
+% Foundation models like VLMs scale because they learn under a aligned formulation - diverse data is cast into a shared predictive format and trained under a unified objective.
+% With abundant, low-cost data from the internet, diverse sources reinforce one another to scale knowledge and drive generalization.
+Foundation models in language and multimodality achieve strong generalization because heterogeneous data sources can be aligned under a unified formulation, and abundant low-cost data from the internet allows diverse training signals to reinforce one another at scale.
+%
+In this report, \textbf{we investigate whether this scaling recipe can be applied to robotic manipulation to achieve genuine generalization.}
+This is challenging because, unlike text, manipulation data is heterogeneous by nature,
+expensive to collect, and narrow in diversity, making alignment and scale simultaneously difficult to achieve.
+We present \ours, a generalizable Vision-Language-Action foundation model built upon Qwen-VL.
+\ours introduces a unified alignment framework across the representation, motion, and behavioral dimensions of manipulation, making large-scale multi-source training coherent rather than conflicting.
+This alignment capability in turn enables \ours to absorb manipulation data at a scale that prior training regimes could not sustain.
+To provide a scaling engine for manipulation data, a human-to-robot synthesis pipeline converts egocentric hand demonstrations into robot trajectories across 15 platforms, and a rigorous curation pipeline harmonizes heterogeneous real-robot and synthetic datasets.
+To our surprise, by leveraging \textbf{only} open-source robotic manipulation datasets and human demonstration videos without any proprietary data collection, \ours constructs a $\sim$38,100-hour pretraining corpus and already exhibits emergent generalization capabilities, including zero-shot instruction following, robustness to perturbations, reactive error recovery, and cross-embodiment knowledge transfer.
+In experiments, we further find that most standard benchmarks systematically fail to capture the quality of pretraining. Thus, we instead adopt OOD evaluation settings, including RoboCasa365, LIBERO-Plus, EBench, RoboTwin-Clean2Rand, RoboTwin-IF (our new instruction-following benchmark), and RoboTwin-XE (our new cross-embodiment transfer benchmark), as our north star for measuring genuine generalization.
+\ours achieves substantially better performance than prior state-of-the-art models, including $\pi_{0.5}$, across all OOD settings, ranks 1st in RoboChallenge with a \textbf{20\%} relative improvement, and is validated on real-robot platforms including AgileX ALOHA, Franka, UR, and ARX.
+% In experiments, we further found that most standard benchmarks systematically fail to capture pretraining quality, and focus on OOD evaluation settings, including RoboCasa365, LIBERO-Plus, Ebench, and two new benchmarks RoboTwin-Easy2Hard and RoboTwin-IF, as our polaris to guide model performance. 
+% \ours substantially outperforms pervious SOTA like $\pi_{0.5}$ and DreamZero  across all of the OOD settings, and validates on real-robot platforms Aloha, Franka, UR, ARX, and get the Rank-1 in Robochallange with 20\% performance improvement compared with previous SOTA policy. 
+
+
+% ============== Version 3
+% Generalization is the defining test of a foundation model. In language and vision, it emerges from scale, where training on sufficiently diverse data with an expressive backbone yields representations that transfer broadly. 
+% Robotic manipulation has resisted this recipe because the data is heterogeneous by nature, spanning different embodiments, coordinate frames, camera configurations, and action spaces, and most prior work has benchmarked progress on in-domain metrics that conflate memorization with understanding.
+% %
+% \textbf{We present \ours, a generalizable Vision-Language-Action foundation model built upon Qwen-VL.}
+% %
+% Scaling manipulation data to the breadth needed for genuine generalization requires ingesting demonstrations from fundamentally incompatible sources. \ours addresses this through a human-to-robot synthesis pipeline that converts egocentric hand demonstrations into robot trajectories across 15 platforms, combined with a rigorous multi-stage curation pipeline that filters and harmonizes heterogeneous real-robot and simulation datasets, accumulating $>$35,000 hours of manipulation data spanning broad morphological and task diversity.
+% %
+% Raw scale alone is insufficient if the model cannot extract consistent signal across this diversity. \ours introduces a unified alignment framework that enables multi-source data to reinforce rather than interfere with one another: a canonical state-action representation that accommodates diverse morphologies via binary masking, a camera-frame delta pose parameterization that makes visually similar motions numerically proximate across coordinate frames, and an in-context policy adaptation mechanism that reads intra-episode execution history as an implicit embodiment identifier for kinematic-aware behavioral adjustment.
+% %
+% We further argue that the field has systematically underestimated the gap between in-domain performance and genuine generalization. \ours introduces OOD evaluation settings including LIBERO-Plus, RoboTwin-Easy2Hard, and RoboCasa365, alongside RoboTwin-IF, a new benchmark testing whether policies condition on language as a genuine control signal rather than visual pattern matching. \ours achieves state-of-the-art on LIBERO, RoboCasa-GR1, and RoboTwin, substantially outperforms $\pi_{0.5}$ across all OOD settings, and validates on real-robot platforms spanning fine-grained dexterous tasks and cross-embodiment transfer.
+% ======= zhixuan ===
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% % Version 2
+
+% Building a generalizable foundation model for robotic manipulation requires solving two fundamental challenges simultaneously: training on data from vastly diverse sources without losing the signal from any of them, and ensuring the learned representations transfer efficiently to new embodiments and tasks. We present \ours, a Vision-Language-Action foundation model built on the Qwen-VL backbone that addresses both challenges by design.
+% %
+% To train on heterogeneous multi-source data at scale, \ours introduces a unified alignment framework at three levels. A canonical 80-dimensional state-action representation accommodates diverse robot morphologies via binary masking. A camera-frame delta pose parameterization grounds end-effector actions directly in the visual domain, ensuring that visually similar motions are numerically proximate across coordinate frames. An in-context policy adaptation mechanism reads intra-episode execution history as an implicit embodiment identifier, enabling behavioral adjustment based on its kinematic patterns. To scale data diversity, \ours combines a rigorous multi-stage data curation pipeline with a human-to-robot synthesis pipeline that converts egocentric hand demonstrations into robot trajectories across 15 platforms.
+% %
+% % Because egocentric human data is inherently embodiment-agnostic, this synthesis is a natural and scalable source for cross-embodiment generalization. 
+% Together, these sources accumulate $>$35,000 hours of manipulation data for policy training.
+% %
+% \ours achieves state-of-the-art performance on standard manipulation benchmarks including LIBERO, RoboCasa-GR1, and RoboTwin, and demonstrates substantially stronger OOD generalization than existing VLA models including $\pi_{0.5}$ across LIBERO-Plus, RoboTwin-Easy2Hard, RoboCasa365, and EBench. We further introduce a new instruction-following benchmark that tests whether the policy conditions on language as a control signal rather than solving tasks through visual pattern matching, and validate on real-robot platforms spanning fine-grained dexterous tasks such as cap screwing and cross-embodiment transfer scenarios. Its generalization capability further enables a hierarchical agentic system that achieves compositional generalization to unseen task and object combinations through instruction composition alone.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% We present \ours, a Vision-Language-Action foundation model for robotic manipulation designed for genuine out-of-distribution generalization. Existing VLA models report strong in-distribution benchmark numbers, yet their pretrained priors transfer poorly: fine-tuning on a new task often yields no advantage over training from scratch. The true measure of a manipulation foundation model is downstream adaptability, namely how efficiently users can transfer it to new embodiments, tasks, and environments with minimal domain-specific data.
+% %
+% \ours addresses this through three tightly coupled design choices. A unified 80-dimensional canonical state-action representation paired with a camera-frame delta pose parameterization grounds the action space directly in the visual domain, ensuring numerical proximity across diverse robot morphologies. A human-to-robot synthesis pipeline converts $\sim$1.8M egocentric hand demonstrations into multi-embodiment robot trajectories across 15 platforms, scaling data diversity far beyond what teleoperation alone provides. An in-context policy adaptation mechanism conditions action prediction on intra-episode historical observation--state--action chunks, reading the robot's own recent execution as an implicit embodiment identifier that enables behavioral adjustment without any parameter update.
+% %
+% \ours achieves state-of-the-art performance on standard manipulation benchmarks including fine-grained dexterous tasks such as cap screwing, and demonstrates substantially stronger OOD generalization than existing VLA models including $\pi_{0.5}$ across novel objects, unseen scenes, and cross-embodiment transfer. Its strong generalization further enables a hierarchical agentic system that achieves compositional generalization to novel task and object combinations through instruction composition alone, without any policy retraining.
+
+% Scaling vision-language models to physical manipulation has long promised a path to general-purpose robotic intelligence, yet realizing that promise demands more than strong benchmark numbers.
+% %
+% We present \ours, a Vision-Language-Action foundation model that takes seriously what a foundation model for robotic manipulation should mean. 
+% Existing VLA models have made impressive strides on in-distribution benchmarks, yet their pretrained priors transfer poorly to new settings: fine-tuning on a new task often yields no advantage over training from scratch. The true measure of a manipulation foundation model is downstream adaptability, namely how efficiently users can transfer it to their own embodiments, tasks, and environments with minimal domain-specific data.
+
+%
+% To train on heterogeneous multi-source data at scale, \ours introduces a unified alignment framework operating at three levels. At the representation level, an 80-dimensional canonical vector accommodates diverse robot morphologies within a single template, with a per-dimension binary mask ensuring gradients flow only through semantically populated dimensions. At the motion level, a camera-frame delta pose parameterization grounds end-effector actions directly in the visual domain, ensuring that visually similar motions are numerically proximate across embodiments and coordinate frames. At the behavioral level, an in-context policy adaptation mechanism reads intra-episode execution history as an implicit embodiment identifier, enabling the model to adjust its behavior based on the kinematic and interaction patterns observed within the current episode.
+%
+% \ours is built to change this. Its unified 80-dimensional canonical state-action representation, paired with a camera-frame delta pose parameterization, grounds the action space directly in the visual domain and enforces numerical proximity across robot morphologies, enabling genuine cross-embodiment knowledge transfer rather than merely shared parameters. Its human-to-robot synthesis pipeline converts $\sim$1.8M egocentric hand demonstrations into multi-embodiment robot trajectories across 15 platforms, unlocking a scalable and inherently embodiment-agnostic data source that teleoperation alone cannot provide. Its in-context policy adaptation mechanism reads the robot's own intra-episode execution history as an implicit embodiment identifier, enabling behavioral adjustment at deployment time without any parameter update.
+%
+% The result is a model that not only achieves state-of-the-art performance on standard manipulation benchmarks including fine-grained dexterous tasks such as cap screwing, but generalizes substantially more robustly than existing VLA models including $\pi_{0.5}$ across novel objects, unseen scenes, and cross-embodiment transfer. Its OOD capability further powers a hierarchical agentic system that achieves compositional generalization to unseen task and object combinations through instruction composition alone. We believe \ours represents a concrete step toward manipulation foundation models that are genuinely transferable by design.
+
+
+\end{abstract}
+
+\begin{figure}[!h]
+    \vspace{10pt}
+    \centering
+    \includegraphics[width=1.0\linewidth]{figures/myteaser_V6.pdf}
+    \vspace{-3pt}
+    % \caption{teaser}
+    \label{fig:teaser}
+    % \vspace{-20pt}
+\end{figure}
+
+
+\clearpage
+
+\input{chapter/introduction}
+
+\input{chapter/data}
+
+\input{chapter/model}
+
+\input{chapter/training}
+
+\input{chapter/system}
+
+\input{chapter/experiment}
+
+\clearpage
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This report set out to investigate whether the scaling recipe behind large language and multimodal models, aligning heterogeneous data under a unified formulation and training at scale, can be applied to robotic manipulation to achieve genuine generalization. We present \ours as an affirmative answer, built on the principle that alignment and scale are not independent engineering challenges but tightly coupled prerequisites: without a unified cross-embodiment formulation, scaling data produces conflicts rather than synergy; without sufficient data diversity, even a well-aligned model cannot generalize beyond its training distribution.
+
+Several findings from this work carry implications beyond the specific system we describe. First, the unified alignment framework, spanning a canonical state-action representation, camera-frame delta pose parameterization, and in-context policy adaptation, proves critical not merely for accommodating diverse embodiments but for enabling data scaling itself. Our ablations show that na\"ive representations fail to exhibit scaling behavior; alignment is what converts additional data volume into improved capability. Second, the fact that \ours constructs a $\sim$38,100-hour corpus and achieves emergent generalization capabilities using \emph{only} open-source robotic manipulation datasets and egocentric human videos, without any proprietary data collection, suggests that the data barrier for manipulation foundation models may be lower than commonly assumed, provided the right synthesis and curation infrastructure is in place. Third, our systematic comparison between in-domain and out-of-distribution evaluation reveals that standard benchmarks consistently fail to distinguish models whose pretraining contributes genuine generalizable structure from those that succeed through in-distribution pattern matching. We believe the OOD evaluation settings introduced in this work provide a more faithful measure of robotic foundation model capability, and we hope they serve as useful diagnostics for the community.
+
+Limitations remain. The human-to-robot synthesis pipeline, while scalable, introduces distributional gaps from retargeting approximations and inpainting artifacts that bound the effective quality of synthesized data. Our OOD evaluations, though substantially more challenging than standard benchmarks, are still predominantly simulation-based. Broader real-world evaluation across deployment conditions is needed. The fixed action chunk length and inference latency of the current system also constrain applicability to tasks requiring reactive sub-second control.
+
+Looking forward, the alignment-then-scale paradigm demonstrated here naturally extends in several directions: incorporating more robot morphologies and task domains into the pretraining corpus, improving synthesis fidelity through more accurate hand-robot retargeting and physically grounded rendering, and incorporating agentic systems toward longer-horizon reasoning and manipulation. Moreover, we hope this work contributes to a shift in how the community evaluates VLA models, from in-domain benchmark rank toward the out-of-distribution generalization that ultimately determines whether a model can serve as a genuine foundation for real-world deployment.
+
+
+\section{Authors}
+
+\textbf{Core Contributors:} Haoqi Yuan$^*$, Zhixuan Liang$^*$, Anzhe Chen$^*$, Ye Wang$^*$, Haoyang Li$^*$, Pei Lin$^*$, Yiyang Huang$^*$, Zixing Lei$^*$, Tong Zhang$^*$, Jiazhao Zhang, Jie Zhang, Jingyang Fan, Gengze Zhou, Qihang Peng, Chenxu Lv, Xiaoyue Chen, An Yang, Fei Huang, Junyang Lin, Dayiheng Liu, Jingren Zhou, Chenfei Wu$^\dagger$, Xiong-Hui Chen$^{\ddagger\dagger}$
+
+$^*$Equal Contribution.
+$^\dagger$ Corresponding Author.
+$^\ddagger$ Project Lead.
+
+\textbf{Contributors:} Jinhui Ye, Sicheng Xie, Hale Yin, 
+Xudong Guo, Shuai Bai, Lulu Hu, Minying Zhang, Shurui Li, Wenhu Xiao, Yue Wang, Kun Yan, Xiao Xu, Jiahao Li, Xuancheng Ren
+
+\textbf{Acknowledgments:} We acknowledge the National Pilot Base for Embodied Intelligence Applications for providing the real-robot experimental environment and equipment. We thank AgileX Robotics for their hardware support. We also thank Prof. Hao Dong and Prof. Yao Mu for their support.
+
+
+\clearpage
+\bibliography{colm2024_conference}
+\bibliographystyle{colm2024_conference}
+
+\end{document}
