@@ -100,9 +100,9 @@
 
 ### 4.0 表征策略：canonical 关节表示 + 本体标签（参照 Qwen-RobotManip，仅取关节轴）
 
-参照 **Qwen-RobotManip《Alignment Unlocks Scale》**——**对齐是数据扩展的前提**，不对齐则"加数据 = 加干扰"。它把对齐拆成三轴；**本方案只用关节角做预训练**，因此取其中两轴、显式跳过第三轴：
+参照 **Qwen-RobotManip《Alignment Unlocks Scale》**——**对齐是数据扩展的前提**，不对齐则"加数据 = 加干扰"。它把对齐拆成三轴；**本方案只用关节角做预训练**，因此取其中两轴、显式跳过第三轴???：
 
-1. ✅ **Representation 表示对齐**（§4.1/§4.2）：canonical 模板（每臂块 = 关节 + 夹爪，外加腰/头/底盘 + reserved）+ **per-dim binary mask**。不同本体只填自己拥有的子集，pad 维 mask=0 不进 loss。
+1. ✅ **Representation 表示对齐**（§4.1/§4.2）：canonical??? 模板（每臂块 = 关节 + 夹爪，外加腰/头/底盘 + reserved）+ **per-dim binary mask**。不同本体只填自己拥有的子集，pad 维 mask=0 不进 loss。
 2. ❌ **Motion 运动对齐（camera-frame delta EE）—— 本方案不做**。Qwen 用末端 camera-frame delta 让"视觉相同的动作数值也接近"，是它跨本体迁移的最强机制；但那要求末端位姿 + 相机标定，且会把动作空间改成 EE。**我们只预训练关节角**，故不引入 EE / 相机系 delta。
 3. ✅ **Behavioral 行为对齐**（§6 P0-b）：embodiment 条件——结构化 embodiment prompt（含 speed/fps，§S0）/ learnable embedding + 可选执行历史 in-context。
 
