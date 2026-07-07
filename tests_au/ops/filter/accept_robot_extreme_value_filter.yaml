@@ -1,0 +1,25 @@
+# Acceptance recipe: robot_extreme_value_filter (Stage 3) with real LeRobot dataset
+project_name: 'accept-robot-extreme-value-filter'
+dataset_path: 'tests_au/ops/filter/outputs/lerobot_episodes.jsonl'
+export_path: 'tests_au/ops/filter/outputs/accept_s3_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+# Package-based operator loading (enterprise style)
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_extreme_value_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      percentile_source: 'stats_json'
+      percentile_stats_path: 'tests_au/ops/filter/outputs/percentiles.json'
+      embodiment: 'galaxea_r1_lite'
+      alpha: 0.1
+      exempt_dims: [7, 15]
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_s3_stats.jsonl'

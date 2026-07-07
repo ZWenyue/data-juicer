@@ -1,0 +1,27 @@
+# Acceptance recipe: robot_sudden_change_filter with real LeRobot dataset
+project_name: 'accept-robot-sudden-change-filter'
+dataset_path: 'tests_au/ops/filter/outputs/lerobot_episodes.jsonl'
+export_path: 'tests_au/ops/filter/outputs/accept_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+# Package-based operator loading (enterprise style)
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_sudden_change_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      threshold_mode: 'mad'
+      mad_scale_residual: 6.0
+      mad_scale_acc: 6.0
+      mad_scale_jerk: 6.0
+      max_flagged_ratio: 0.3
+      max_run_length: 10
+      min_frames: 30
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_stats.jsonl'

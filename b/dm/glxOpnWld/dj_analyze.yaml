@@ -1,0 +1,27 @@
+# Data-Juicer 分析配置: Galaxea Open-World Dataset — Connect_Router_Cables
+#
+# DJ 的内置分析器面向文本/多模态数据。对本机器人数据集，我们先用
+# convert_to_jsonl.py 将 episodes 元数据和子任务标注转为 JSONL，
+# 然后用 DJ 分析标注文本的语言质量和多样性。
+#
+# 运行方式:
+#   1) /mnt/r/VENV/dj/bin/python b/dm/glxOpnWld/convert_to_jsonl.py
+#   2) /mnt/r/VENV/dj/bin/dj-analyze --config b/dm/glxOpnWld/dj_analyze.yaml
+
+project_name: 'galaxea-connect-router-cables'
+dataset_path: './b/dm/glxOpnWld/dataset_annotations.jsonl'
+np: 4
+
+export_path: './b/dm/glxOpnWld/dj_analyze_results.jsonl'
+
+# 对子任务标注文本做基础质量分析
+process:
+  - text_length_filter:
+      min_len: 5
+      max_len: 500
+  - language_id_score_filter:
+      lang: 'zh'
+      min_score: 0.3
+  - words_num_filter:
+      min_num: 2
+      max_num: 100
