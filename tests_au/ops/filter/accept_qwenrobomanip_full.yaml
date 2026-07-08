@@ -1,0 +1,68 @@
+# Combined acceptance recipe (FULL): Stage 1 (Sudden Change) + Stage 2 (State-Action Alignment)
+# + Stage 3 (Extreme Value Filtering) + Stage 5 (Base Frame & EEF Orientation Alignment).
+# Demonstrates that the Stage-5 Mapper composes with the Stage-1/2/3 Filters in one pipeline.
+# On joint-space Galaxea data, Stage 5 is configured WITHOUT pose_layout -> safe pass-through.
+project_name: 'accept-qwenrobomanip-full'
+dataset_path: 'tests_au/ops/filter/outputs/lerobot_episodes.jsonl'
+export_path: 'tests_au/ops/filter/outputs/accept_full_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+# Package-based operator loading (enterprise style)
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  # ---- Stage 1: Sudden Change Detection (intra-signal) ----
+  - robot_sudden_change_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      threshold_mode: 'mad'
+      mad_scale_residual: 6.0
+      mad_scale_acc: 6.0
+      mad_scale_jerk: 6.0
+      max_flagged_ratio: 0.3
+      max_run_length: 10
+      min_frames: 30
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_full_s1_stats.jsonl'
+  # ---- Stage 2: State-Action Trend Alignment (inter-signal) ----
+  - robot_state_action_alignment_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      shared_dims: [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]
+      action_is_delta: false
+      max_lag: 15
+      da_threshold: 0.65
+      eps_mode: 'range_frac'
+      eps_frac: 0.01
+      min_active_frames: 10
+      min_frames: 20
+      exclusion_strategy: 'flag_only'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_full_s2_stats.jsonl'
+  # ---- Stage 3: Extreme Value Filtering (per-embodiment percentile band) ----
+  - robot_extreme_value_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      percentile_source: 'stats_json'
+      percentile_stats_path: 'tests_au/ops/filter/outputs/percentiles.json'
+      embodiment: 'galaxea_r1_lite'
+      alpha: 0.1
+      exempt_dims: [7, 15]
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_full_s3_stats.jsonl'
+  # ---- Stage 5: Base Frame & EEF Orientation Alignment (Mapper) ----
+  # Galaxea is joint-space (no EEF pose): leave pose_layout unset -> pass-through,
+  # verifying the Mapper safely coexists with the upstream Filters without corrupting data.
+  - robot_base_frame_alignment_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      correction_source: 'preset'
+      preset_name: 'identity'
+      report_field: 'base_frame_alignment_report'

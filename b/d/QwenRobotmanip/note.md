@@ -586,6 +586,296 @@ Qwen-RobotManip 设计了一个覆盖所有已知体态的统一 80 维状态-�
 - **状态向量**：所有值采用**绝对坐标**（关节绝对位置、EEF 绝对位姿）
 - **动作向量**：关节动作为**绝对值**，但末端执行器动作为**相对 delta**（增量位移）；且方向 delta 使用 **3D 旋转向量**（而非状态中使用的 6D 连续旋转表示），因为增量旋转通常较小，3D 表示更紧凑 [Yuan et al., 2026]
 
+#### 4.1.2a 深入解析："绝对坐标"与状态-动作表示的设计哲学
+
+上面两行看似简单的描述，实际上浓缩了机器人学、李群理论和深度学习表示论三个领域交叉的深层设计考量。下面逐层展开。
+
+##### （一）"绝对坐标"的精确定义
+
+在机器人学中，描述系统状态有三种坐标语义，它们之间的区别至关重要：
+
+| 语义 | 数学含义 | 例子 | 论文中的使用 |
+|------|---------|------|------------|
+| **绝对 (absolute)** | 当前瞬时物理量在某参考系下的实际值 | 关节角度 $q_3 = 1.57$ rad | **状态向量全部** + 动作向量的关节部分 |
+| **相对 (relative)** | 相对于某个外部参考（如另一个坐标系或初始状态）的值 | EEF 相对于相机的位姿 | 动作中的 EEF delta |
+| **增量 (delta)** | 相邻两个时间步之间的变化量 $\Delta x = x_{t+1} - x_t$ | 末端执行器平移增量 $(+0.01, 0, -0.005)$ m | 动作中的 EEF delta |
+
+论文说 "For the state vector, all values are expressed in absolute coordinates"，这意味着状态向量的**每一个维度**都记录的是**当前时刻的实际测量值**——不是速度，不是差值，不是相对于 episode 起始的偏移。具体而言，80 维状态向量中每个语义组的"绝对"含义如下：
+
+$$
+\mathbf{s} = \left[\underbrace{[\underbrace{\mathbf{q}_L}_{\text{7D 关节}},\; \underbrace{\mathbf{p}_L, \mathbf{R}_L^{6D}}_{\text{9D EEF}},\; \underbrace{g_L}_{\text{1D 夹爪}},\; \underbrace{\mathbf{h}_L}_{\text{12D 手}}]}_{\text{左臂 29D}},\;
+\underbrace{[\cdots]}_{\text{右臂 29D}},\;
+\underbrace{\mathbf{r}}_{\text{22D 预留}}
+\right] \in \mathbb{R}^{80}
+$$
+
+- **关节位置 $\mathbf{q} \in \mathbb{R}^7$**：各关节电机编码器的即时读数（单位: 弧度）。这是**构型空间 (Configuration Space, $\mathcal{C}$-space)** 中的坐标——每个维度对应一个关节自由度，完全独立于外部参考系。"绝对"在此意味着读数直接来自编码器，不做差分或积分。例如肩关节角度 $q_1 = 0.5$ rad 就是此刻肩关节相对于其零位的角度。
+
+- **末端执行器位姿 $(\mathbf{p}, \mathbf{R}) \in \mathbb{R}^3 \times SO(3)$**：EEF 的笛卡尔位置 $(x, y, z)$ 和朝向，表达在**机器人基坐标系 (base frame)** 中。这是**任务空间 (Task Space)** 中的坐标。"绝对"在此意味着位姿相对于机器人底座原点的 SE(3) 变换，而非相对于前一帧或相机的变换。位置 $\mathbf{p} \in \mathbb{R}^3$ 直接以米为单位；朝向使用 **6D 连续旋转表示** $\mathbf{R}^{6D} \in \mathbb{R}^6$（取旋转矩阵的前两列）。
+
+- **夹爪 $g \in \mathbb{R}$**：平行夹爪的开合度，本质上也是一个关节的绝对位置。
+
+- **灵巧手 $\mathbf{h} \in \mathbb{R}^{12}$**：多指灵巧手各关节的绝对角度，与臂关节类似，直接来自编码器读数。
+
+```mermaid
+graph LR
+    subgraph 构型空间["构型空间 C-space<br/>(关节坐标)"]
+        Q["q = (q₁, q₂, ..., q₇)<br/>编码器读数 (rad)"]
+    end
+
+    subgraph 任务空间["任务空间 Task Space<br/>(笛卡尔坐标)"]
+        P["(p, R) ∈ SE(3)<br/>EEF 位姿 (m, rad)"]
+    end
+
+    Q -->|"正向运动学 FK(q)"| P
+    P -->|"逆运动学 IK(p, R)"| Q
+
+    subgraph 基坐标系["基坐标系 Base Frame"]
+        BASE["原点: 机器人底座<br/>x: 前, y: 左, z: 上"]
+    end
+
+    BASE -.->|"位姿参考系"| P
+    BASE -.->|"编码器零位定义"| Q
+
+    style 构型空间 fill:#e3f2fd
+    style 任务空间 fill:#fff3e0
+    style 基坐标系 fill:#e8f5e9
+```
+
+> **关键洞察**：状态向量中的关节位置和 EEF 位姿是**同一物理状态的两种冗余描述**——它们通过正向运动学 (Forward Kinematics, FK) 相互关联。论文选择同时保留两者，而非仅保留其一，这一看似冗余的设计具有深刻的工程考量。
+
+##### （二）关节空间与任务空间的冗余表示：为什么两者都要？
+
+给定一个 $n$-DOF 机械臂的关节向量 $\mathbf{q} \in \mathbb{R}^n$，其末端执行器位姿可通过正向运动学唯一确定：
+
+$$
+\mathbf{T}_{ee} = \text{FK}(\mathbf{q}) = \prod_{i=1}^{n} \mathbf{T}_i(q_i) \in SE(3)
+$$
+
+其中 $\mathbf{T}_i(q_i)$ 是第 $i$ 个关节的齐次变换矩阵（由 URDF/DH 参数确定）。既然关节位置已经**隐式**包含了 EEF 位姿的信息，为什么还要显式保留后者？原因有三：
+
+**1. 服务不同的控制范式**
+
+VLA 领域存在两大控制流派，它们各自需要不同的表示空间：
+
+| 控制范式 | 输出空间 | 代表方法 | 需要的表示 |
+|---------|---------|---------|-----------|
+| 关节空间控制 | $\mathbf{q}_{\text{target}} \in \mathbb{R}^n$ | ACT [Zhao et al., 2023], Diffusion Policy | 关节位置 |
+| 任务空间控制 | $\Delta \mathbf{T}_{ee} \in SE(3)$ | π0 camera-frame delta, Qwen-RobotManip | EEF 位姿 |
+
+Qwen-RobotManip 的 80 维向量通过同时保留两者，使单一模型能够在两种范式下工作：对于支持关节空间控制的体态，使用关节位置维度；对于需要跨体态迁移的场景，使用 EEF 位姿维度配合 §4.2 的相机坐标系 delta 表示。
+
+**2. 跨体态迁移的桥梁**
+
+不同机器人的关节空间**不可直接比较**——Franka Panda 的 $q_3 = 0.5$ 和 UR5 的 $q_3 = 0.5$ 代表完全不同的物理构型。但它们的 EEF 位姿 $(x, y, z, R)$ 在同一任务空间中是可比较的——"末端执行器在基坐标系前方 0.3m、左侧 0.1m 处"这一描述对所有机器人具有相同的物理含义。
+
+$$
+\underbrace{\mathbf{q}^{\text{Franka}}}_{\text{7D}} \xrightarrow{\text{FK}_{\text{Franka}}} \underbrace{\mathbf{T}_{ee}}_{\text{SE(3)}} \xleftarrow{\text{FK}_{\text{UR5}}} \underbrace{\mathbf{q}^{\text{UR5}}}_{\text{6D}}
+$$
+
+EEF 位姿充当了不同构型空间之间的**通用语言 (lingua franca)**，是跨体态知识迁移的数学基础。
+
+**3. 数据质量的交叉验证**
+
+论文的数据工程 Stage 4 (FK Consistency) 正是利用这种冗余来检测和修正数据错误：用 URDF + Pinocchio 从关节角度 $\mathbf{q}$ 计算 FK 得到的 EEF 位姿 $\hat{\mathbf{T}}_{ee}$，与数据集中记录的 $\mathbf{T}_{ee}$ 进行比较。两者之间的偏差可以揭示 TCP 偏移、坐标系定义不一致等问题。这种交叉验证只有在同时拥有关节值和 EEF 位姿时才可能实现。
+
+##### （三）状态 6D 旋转 vs. 动作 3D 旋转向量：表示论的精妙权衡
+
+论文中这句 "end-effector orientation deltas are parameterized as 3D rotation vectors rather than the 6D representations used for states" 背后，是旋转群 $SO(3)$ 的表示理论与深度学习优化需求之间的精妙平衡。
+
+**Zhou et al. 2019 的连续性定理**
+
+Zhou 等人 [2019] 证明了一个影响深远的拓扑结论：
+
+> **定理**：$SO(3)$ 到 $\mathbb{R}^n$ 的连续单射（injective continuous mapping）至少需要 $n \geq 5$ 维。
+
+直觉理解：$SO(3)$ 的拓扑结构是 $\mathbb{R}P^3$（三维实射影空间），它"不可能被无撕裂地摊平到低于 5 维的欧几里德空间中"。这意味着所有低于 5D 的旋转表示都**必然存在不连续性**：
+
+| 表示 | 维度 | 不连续性来源 | 后果 |
+|------|------|------------|------|
+| 欧拉角 $(φ, θ, ψ)$ | 3D | 万向锁 (Gimbal Lock): 当 $θ = ±π/2$ 时两个轴退化 | 梯度爆炸/消失 |
+| 四元数 $(w, x, y, z)$ | 4D | 反足标识 (Antipodal): $\mathbf{q}$ 和 $-\mathbf{q}$ 表示同一旋转 | 训练振荡 |
+| 旋转向量 $\boldsymbol{\omega}$ | 3D | 在 $\|\boldsymbol{\omega}\| = π$ 处不连续：绕轴 $\hat{n}$ 转 $π$ 等价于绕 $-\hat{n}$ 转 $π$ | 大角度回归不稳定 |
+
+**6D 连续旋转表示**
+
+6D 表示取旋转矩阵 $\mathbf{R} \in SO(3)$ 的**前两列** $(\mathbf{r}_1, \mathbf{r}_2)$ 作为表示向量 [Zhou et al., 2019]：
+
+$$
+f: SO(3) \to \mathbb{R}^6, \quad \mathbf{R} = [\mathbf{r}_1 \mid \mathbf{r}_2 \mid \mathbf{r}_3] \mapsto (\mathbf{r}_1, \mathbf{r}_2)
+$$
+
+恢复时通过 Gram-Schmidt 正交化：
+
+$$
+g: \mathbb{R}^6 \to SO(3), \quad (\hat{\mathbf{r}}_1, \hat{\mathbf{r}}_2) \mapsto \mathbf{R} = \left[\frac{\hat{\mathbf{r}}_1}{\|\hat{\mathbf{r}}_1\|} \;\middle|\; \frac{\hat{\mathbf{r}}_2 - (\hat{\mathbf{r}}_2 \cdot \mathbf{e}_1)\mathbf{e}_1}{\|\hat{\mathbf{r}}_2 - (\hat{\mathbf{r}}_2 \cdot \mathbf{e}_1)\mathbf{e}_1\|} \;\middle|\; \mathbf{e}_1 \times \mathbf{e}_2 \right]
+$$
+
+其中 $\mathbf{e}_1 = \hat{\mathbf{r}}_1 / \|\hat{\mathbf{r}}_1\|$。这一映射是**连续的**且**满射的**，满足神经网络函数逼近的连续性要求。
+
+**3D 旋转向量（轴角表示）**
+
+旋转向量 $\boldsymbol{\omega} \in \mathbb{R}^3$ 通过指数映射 (exponential map) 与 $SO(3)$ 关联：
+
+$$
+\exp: \mathfrak{so}(3) \to SO(3), \quad \boldsymbol{\omega} \mapsto \mathbf{R} = \mathbf{I} + \frac{\sin\theta}{\theta}[\boldsymbol{\omega}]_\times + \frac{1 - \cos\theta}{\theta^2}[\boldsymbol{\omega}]_\times^2
+$$
+
+其中 $\theta = \|\boldsymbol{\omega}\|$ 是旋转角度，$[\boldsymbol{\omega}]_\times$ 是反对称矩阵。逆映射 (对数映射) 为：
+
+$$
+\log: SO(3) \to \mathfrak{so}(3), \quad \mathbf{R} \mapsto \boldsymbol{\omega} = \frac{\theta}{2\sin\theta}\begin{pmatrix} R_{32} - R_{23} \\ R_{13} - R_{31} \\ R_{21} - R_{12} \end{pmatrix}
+$$
+
+在 $\theta < \pi$ 时此映射是连续的，但在 $\theta = \pi$（即旋转 180°）处不连续。
+
+**状态用 6D、动作 delta 用 3D 的四重理据**
+
+理解了上述数学背景后，论文的设计决策可以从四个角度解释：
+
+**理据 1：输入连续性 vs. 输出小角度保证**
+
+状态向量是 DiT 的**输入**——通过 MLP 编码后注入 Transformer。神经网络是连续函数的复合，若输入表示不连续，网络需要学习一个不连续映射来"修补"表示的缺陷，这在理论上不可能完美实现（Universality Theorem 保证的是连续函数逼近）。因此状态**必须**使用连续表示（6D）。
+
+动作 delta 是 Flow Matching 的**输出**——DiT 预测的速度场。但动作增量是相邻时间步的变化量 $\Delta \mathbf{R} = \mathbf{R}_t^{-1} \mathbf{R}_{t+1}$，对于 15-50 Hz 的控制频率，单步旋转变化量通常很小（$\|\Delta\boldsymbol{\omega}\| < 0.1$ rad $\ll \pi$），远离 3D 旋转向量在 $\pi$ 处的不连续点。在此安全区间内，3D 表示不仅连续，还近似线性（$\exp(\boldsymbol{\omega}) \approx \mathbf{I} + [\boldsymbol{\omega}]_\times$ 对小角度成立），使回归目标更简单。
+
+$$
+\text{小角度近似: } \|\Delta\boldsymbol{\omega}\| \ll \pi \implies \exp(\Delta\boldsymbol{\omega}) \approx \mathbf{I} + [\Delta\boldsymbol{\omega}]_\times
+$$
+
+**理据 2：维度预算的经济性**
+
+80 维向量中每臂只有 29 维的预算。EEF 位姿已占 9 维（3 位置 + 6 旋转），如果动作 delta 也用 6D 旋转，则位姿 delta 需要 $3 + 6 = 9$ 维；改用 3D 旋转向量后只需 $3 + 3 = 6$ 维，**每臂节省 3 维**。在寸土寸金的 29 维预算中，这 3 维可以留给灵巧手等更需要的语义组。
+
+**理据 3：与 Flow Matching 速度场的自然契合**
+
+Flow Matching 的训练目标是预测速度场 $\mathbf{v} = \mathbf{a} - \boldsymbol{\epsilon}$。在李群理论中，$SO(3)$ 上的"速度"自然地生活在其李代数 $\mathfrak{so}(3) \cong \mathbb{R}^3$ 中——也就是 3D 旋转向量空间。用 3D 表示动作 delta 使得 Flow Matching 的速度场在旋转分量上直接等价于李代数中的速度，数学上自洽：
+
+$$
+\mathbf{v}_{\text{rot}} = \Delta\boldsymbol{\omega} - \boldsymbol{\epsilon}_{\text{rot}} \in \mathbb{R}^3 \cong \mathfrak{so}(3)
+$$
+
+如果用 6D 表示，速度场将生活在 $\mathbb{R}^6$ 中，但 $SO(3)$ 只有 3 个自由度，多出的 3 维是冗余约束——Flow Matching 需要额外学习保持这些冗余维度的一致性，增加了不必要的学习负担。
+
+**理据 4：与相机坐标系 delta 公式的自然对接**
+
+§4.2 中的相机坐标系 delta 公式 (Eq. 1) 的旋转块为：
+
+$$
+\Delta\mathbf{R}_c = {}^c_e\mathbf{R} \; {}^e_{e^*}\mathbf{R} \; {}^e_c\mathbf{R}
+$$
+
+这是一个旋转矩阵，可直接通过对数映射 $\log(\Delta\mathbf{R}_c)$ 转化为 3D 旋转向量。若使用 6D 表示，还需要一步"取旋转矩阵前两列"的操作——虽然简单，但在流匹配的去噪过程中增加了不必要的非线性变换。
+
+**各旋转表示对比总结**：
+
+| 表示 | 维度 | 连续性 | 小角度行为 | 计算效率 | 在论文中的角色 |
+|------|------|--------|-----------|---------|--------------|
+| 欧拉角 | 3D | 万向锁 | 线性但有奇异点 | 高 | **不使用** |
+| 四元数 | 4D | 反足标识 | 良好 | 高 | **不使用** |
+| 旋转向量 (轴角) | 3D | $\pi$ 处不连续 | **优秀** (近似线性) | 中 | **动作 delta** |
+| 6D 连续表示 | 6D | **连续** | 良好 | 低 (需 GS) | **状态** |
+| 旋转矩阵 | 9D | 连续但冗余 | 良好 | 最低 | 中间计算 |
+
+##### （四）尾部 22 预留维度的分析
+
+论文明确提到：
+
+> "The trailing 22 reserved dimensions are shared across both arms and are available for additional degrees of freedom such as mobile-base velocity."
+
+这 22 维位于 80 维向量的 dims 59-80，有几个关键特性：
+
+**1. 双臂共享**
+
+与前 58 维的严格"左臂 | 右臂"分区不同，尾部 22 维**不属于任一臂**，是整个机器人平台的全局维度。这一设计反映了移动底盘、躯干等自由度本质上是**全身 (whole-body)** 层面的，不应被人为地归入左臂或右臂。
+
+**2. 当前可能的使用场景**
+
+| 维度 | 可能用途 | 体态 |
+|------|---------|------|
+| 3 维 | 底盘线速度 $(v_x, v_y, v_z)$ 或位置 $(x, y, \theta)$ | 移动操控平台 |
+| 3 维 | 底盘角速度或额外平移 | 全向移动底盘 |
+| 4-6 维 | 躯干关节（升降 + 俯仰 + 旋转） | 人形/半人形机器人 |
+| 2-3 维 | 头部关节（pan + tilt） | 主动视觉平台 |
+| 剩余 | 预留未来扩展 | — |
+
+论文 §3.1 中末端执行器类型嵌入 (end-effector type embedding) 的码本已包含 "mobile base" 类别，说明移动底盘维度的使用在当前训练中已经是现实的。
+
+**3. 与 DiT 内部 40 维 token 的关系**
+
+在 DiT 处理时，80 维向量被拆分为 **两个 40 维 per-end-effector token**（每臂 29 维活跃 + 11 维预留）。这里的 11 维 per-token padding 与尾部 22 维共享区是**独立的两组预留**——22 维用于全身自由度，11 维用于单臂内的未来扩展。对于用到尾部 22 维的体态，这些维度的处理路径取决于具体的 token 分配策略（论文未详述）。
+
+**4. 零填充与掩码**
+
+对于不使用尾部维度的体态（如定点操作的单臂 Franka Panda），这 22 维全部零填充，并通过 per-dimension binary mask 从 Flow Matching 损失中排除，确保零值不产生虚假梯度。
+
+##### （五）数据工程如何保障"绝对坐标"的一致性
+
+"绝对坐标"的前提是一个关键假设：来自不同数据集的"绝对值"必须在**同一坐标约定**下才有语义可比性。如果 Dataset A 的正 x 轴指向前方而 Dataset B 的正 x 轴指向右方，那么两者的 EEF 位置 $(x, y, z)$ 虽然都是"绝对"的，但数值完全不可比。
+
+论文通过五阶段数据清洗流水线（§5.2 Data Curation）来保障这一前提：
+
+**Stage 4 — FK Consistency（正向运动学一致性）**
+
+用 URDF 模型 + Pinocchio 库从关节角度 $\mathbf{q}$ 计算 FK 得到 $\hat{\mathbf{T}}_{ee}$，与数据集中记录的 $\mathbf{T}_{ee}$ 比较。偏差来源包括：
+
+$$
+\mathbf{T}_{ee}^{\text{logged}} = \mathbf{T}_{ee}^{\text{FK}} \cdot \underbrace{\mathbf{T}_{\text{TCP}}}_{\text{TCP 偏移}} \cdot \underbrace{\mathbf{T}_{\text{calib}}}_{\text{标定误差}}
+$$
+
+Stage 4 对这些偏差进行修正，使关节空间和任务空间的冗余表示在数学上自洽。这是一个**数据修正 (Mapper)** 操作，而非过滤——它不丢弃数据，而是纠正不一致性。
+
+**Stage 5 — Base Frame Alignment（基坐标系对齐）**
+
+施加逐数据集旋转修正，确保所有数据集的基坐标系遵循统一的约定：**正 x 轴指向机器人正前方**。修正公式为：
+
+$$
+\mathbf{p}_{ee}^{\text{aligned}} = \mathbf{R}_{\text{corr}} \cdot \mathbf{p}_{ee}^{\text{raw}}, \quad \mathbf{R}_{ee}^{\text{aligned}} = \mathbf{R}_{\text{corr}} \cdot \mathbf{R}_{ee}^{\text{raw}}
+$$
+
+其中 $\mathbf{R}_{\text{corr}}$ 是逐数据集的恒定旋转矩阵。经过这一步，不同数据集中 "EEF 在基坐标系前方 0.3m" 的描述具有相同的物理含义。
+
+**分位数归一化 (Quantile-Based Normalization)**
+
+训练时对每个维度按体态类型计算第 1 和第 99 百分位数 $[q_{0.01}, q_{0.99}]$，然后线性映射到 $[-1, 1]$：
+
+$$
+\tilde{s}_j = \frac{2 (s_j - q_{0.01,j})}{q_{0.99,j} - q_{0.01,j}} - 1
+$$
+
+这一归一化保证不同量纲的维度（弧度 vs 米 vs 无量纲）具有相近的数值范围，有利于 Flow Matching 的均匀去噪。
+
+##### （六）实例：Galaxea R1 Lite 在 80 维框架下的映射
+
+将上述理论联系到本分析系列的 Galaxea R1 Lite 数据集。R1 Lite 是一台 6-DOF 双臂轮式移动机器人，其原始特征结构（如 Open_And_Close_The_Door 数据集中所见）为：
+
+| 原始特征 | 维度 | 80 维向量中的映射 |
+|---------|------|-----------------|
+| `left_arm` | 6 | dims 1-6（填满 6 个，第 7 维零填充） |
+| `left_ee_pose` | 7 (xyz + quat) | dims 8-16（需将四元数转为 6D 连续旋转） |
+| `left_gripper` | 1 | dim 17 |
+| `right_arm` | 6 | dims 30-35（第 36 维零填充） |
+| `right_ee_pose` | 7 | dims 37-45（同上转换） |
+| `right_gripper` | 1 | dim 46 |
+| `chassis` (x, y, yaw) | 3 | dims 59-61（尾部预留区） |
+| `torso` | 4 | dims 62-65（尾部预留区） |
+| 灵巧手 | — | dims 18-29, 47-58 零填充 |
+| 底盘速度/IMU | 3+10 | 视训练需求选择性映射或排除 |
+
+几个需要特别处理的转换：
+
+**四元数 → 6D 连续旋转**：R1 Lite 数据集中 EEF 朝向记录为四元数 $(w, x, y, z)$。映射到 80 维状态向量时需转换为 6D 表示：
+
+$$
+(w, x, y, z) \xrightarrow{\text{quat2mat}} \mathbf{R} = \begin{bmatrix} r_{11} & r_{12} & r_{13} \\ r_{21} & r_{22} & r_{23} \\ r_{31} & r_{32} & r_{33} \end{bmatrix} \xrightarrow{\text{取前两列}} (r_{11}, r_{21}, r_{31}, r_{12}, r_{22}, r_{32})
+$$
+
+**6-DOF → 7-DOF 关节映射**：R1 Lite 每臂 6 个关节，而 80 维向量为 7 关节预留了 7 维。第 7 维零填充，并通过 per-dimension mask 排除出损失计算。
+
+**底盘/躯干 → 尾部 22 维**：这些全身自由度自然映射到尾部共享区域。底盘的 $(x, y, \text{yaw})$ 是绝对位置（与状态向量的"绝对坐标"一致），躯干 4 关节同理。
+
+> **实践意义**：如果要将 Galaxea R1 Lite 数据纳入 Qwen-RobotManip 的训练框架，上述映射和转换是数据预处理的核心步骤。论文的五阶段清洗流水线中，Stage 4 (FK Consistency) 和 Stage 5 (Base Frame Alignment) 需要针对 R1 Lite 的 URDF 模型和坐标系约定进行配置。
+
 **Per-End-Effector Token：40 维**
 
 在 DiT 内部，80 维向量并非作为整体处理，而是**拆分为两个 40 维的 per-end-effector token**。每臂的 29 个有效维度被打包进 40 维的槽位（slot），剩余 11 维预留扩展。DiT 通过自注意力（self-attention）联合处理这两个 token，使双臂间可以交换信息以实现协调运动 [Yuan et al., 2026]。
@@ -794,6 +1084,655 @@ graph LR
 | **In-Context Adaptation** | **无** | **无** | **低** | **即时适配** |
 
 上下文策略自适应的最大优势是**零参数更新的即时适配**：部署到新机器人时，只需提供几步操作历史，模型即可自动推断当前体态的特征并调整行为。这极大地降低了实际部署的门槛 [Yuan et al., 2026]。
+
+### 4.4 视觉空间锚定：贯穿"数据—模型—实验"的统一线索
+
+前面三个小节分别从**表示**（§4.1）、**运动**（§4.2）、**行为**（§4.3）三个层面阐述了对齐框架。本小节做一次**跨章节的综合辨析**，把论文中三段看似分属不同章节、实则一脉相承的内容放在一起分析——它们分别位于**数据工程**（`data.tex` 第 (6) 类具身中心 VL 数据中的 2D 轨迹预测）、**模型架构**（`model.tex` §3.3 Unified End-Effector Motion Prediction）与**实验验证**（`experiment.tex` §6.5.2 EEF Control & Cross-Embodiment Transfer）。
+
+这三段内容"既有区别也有联系"：**区别**在于它们处于流水线的不同环节、使用不同的坐标维度与监督形式；**联系**在于它们共享同一条设计主线——**把机器人的运动锚定在"视觉/相机坐标空间"，而非各自体态相关的基坐标系**。本节先概览三者定位（§4.4.1），再补齐 §4.2 未展开的模型细节（§4.4.3），最后做区别与联系的系统辨析（§4.4.5）并给出具身智能/VLA 视角的深层解读（§4.4.6）。
+
+#### 4.4.1 三段内容的定位与一句话概览
+
+| 内容 | 论文位置 | 流水线环节 | 坐标空间 | 一句话作用 |
+|------|---------|-----------|---------|-----------|
+| **2D 轨迹预测数据** | `data.tex` §(6)(c) | 预训练（VL 共训练） | 图像平面（2D 像素） | 让 VLM 骨干在**像素空间**建立"看到什么 ↔ 怎么动"的映射，为动作学习**播种**视觉空间运动推理 |
+| **统一 EEF 运动预测** | `model.tex` §3.3 | 模型架构（动作专家） | 相机坐标系（3D SE(3) delta） | 把动作**表示**为相机系增量位姿，使"视觉相似 ⇒ 数值相近"，实现跨体态可迁移的动作接口 |
+| **EEF 控制 & 跨体态迁移** | `experiment.tex` §6.5.2 | 实验验证 | —（评测） | 用三维度递进实验**证明**该锚定策略解锁了从同分布到零样本的一系列迁移能力 |
+
+一句话概括三者关系：**数据侧提供"视觉空间运动"的监督信号 → 模型侧把它落成"相机系动作表示" → 实验侧证明这一表示带来了跨体态迁移的收益**。三者围绕同一个几何锚点——相机/图像坐标系——形成"监督—表示—证据"的闭环。
+
+```mermaid
+flowchart LR
+    subgraph dataSide["数据侧 data.tex 6c"]
+        D1["2D 轨迹预测<br/>图像坐标监督"]
+    end
+    subgraph modelSide["模型侧 model.tex 3.3"]
+        M1["相机系 Delta 动作<br/>CaPE + EEF 条件"]
+    end
+    subgraph expSide["实验侧 experiment.tex 6.5.2"]
+        E1["跨体态迁移验证<br/>三维度递进"]
+    end
+    D1 -->|"预训练播种视觉空间运动推理"| M1
+    M1 -->|"提供跨体态动作表示"| E1
+    E1 -.->|"实验证据反哺设计选择"| M1
+    anchor["共同锚点: 相机/图像坐标系<br/>视觉相似 ⇒ 数值相近"]
+    D1 --- anchor
+    M1 --- anchor
+    E1 --- anchor
+```
+
+#### 4.4.2 数据侧：图像坐标下的 2D 轨迹预测（data.tex §(6)(c)）
+
+第 (6) 类"具身中心 VL 数据"包含三个子集：ECoT（体态思维链推理）、自中心视频理解、以及本节关注的 **2D 轨迹预测**（`data.tex`：*"2D trajectory prediction data, where the model predicts future movement trajectories of human hands or robot end-effectors as sequences of normalized 2D coordinates, conditioned on visual observations and task instructions"*）。其数据构造在 §5.4 已有描述（将 3D 轨迹经相机参数投影到图像平面）；本节聚焦它在**运动对齐**中扮演的角色。
+
+**它到底在做什么。** 给定视觉观测与任务指令，模型输出一串**归一化 2D 坐标** $\{(u_t, v_t)\}_{t=1}^{T}$，表示人手或机器人末端在图像平面上的未来运动轨迹。这条轨迹本质上是 3D 世界运动经相机投影后的"影子"：
+
+$$
+\begin{bmatrix} u_t \\ v_t \\ 1 \end{bmatrix} \sim \mathbf{K} \, [\mathbf{R}\ \vert\ \mathbf{t}] \begin{bmatrix} \mathbf{P}_t^{\text{world}} \\ 1 \end{bmatrix},
+$$
+
+其中 $\mathbf{K}$ 是相机内参、$[\mathbf{R}\,\vert\,\mathbf{t}]$ 是外参（详见附录 A），$\mathbf{P}_t^{\text{world}}$ 是 EEF/人手的 3D 位置。这些坐标以文本 token 的形式由 VLM 骨干**自回归生成**，因此它是一个**离散的、语言侧**的预测任务。
+
+**为什么它对"运动对齐"至关重要。** 关键在于它与 §4.2 的相机系 delta 动作**共享同一个几何直觉**：都把运动放到"看得见的坐标系"里。区别只是维度——2D 轨迹是投影后的**像素平面**，相机系 delta 是投影前的**3D 相机系**。在动作专家（DiT）学习连续控制之前，2D 轨迹预测先让 VLM 骨干在像素空间里反复练习"**视觉观测 ↔ 空间运动**"的对应关系，相当于为下游的相机系动作生成**预置了一个视觉—运动的表示先验**。用一个类比：先教模型"用眼睛描出手会怎么移动"（2D 像素轨迹），再教它"精确地按相机视角把手推到目标"（3D 相机系 delta）——前者是后者的"轻量热身"，共享同一套视觉锚定的世界观。
+
+这也解释了论文把 2D 轨迹预测与 ECoT、自中心视频理解并置于"桥接 VL 理解与动作生成"这一目的下（`data.tex` L287：*"together these data sources establish a shared representational foundation that facilitates knowledge transfer to low-level action prediction"*）：它不是要 VLM 直接输出可执行控制，而是构建一个**与视觉观测空间对齐的运动表示基座**。
+
+#### 4.4.3 模型侧补全：§4.2 未展开的两块（model.tex L62, L100-107）
+
+§4.2 已详解相机系 delta 位姿的两种数学形式与 CaPE。这里补齐 §3.3 中另外两块与"EEF 运动预测"紧密相关、但前文未展开的机制。
+
+**（一）40 维 per-EEF token 与 DiT 联合自注意力。** §4.1 已介绍 80 维状态-动作向量在 DiT 内部被拆成**两个 40 维 per-end-effector token**（每臂 29 活跃维 + 11 预留维）。§3.3 补充了一个关键点（`model.tex` L62）：模型从 80 维向量中抽取 $N_{\text{ee}} \in \{1, 2\}$ 个 40 维 token，**DiT 通过自注意力联合处理它们**。这一设计的意义在于——把"每只手臂"当作一个独立的**可组合单元**（token），使得：
+
+- **单臂/双臂统一**：$N_{\text{ee}}=1$ 即单臂，$N_{\text{ee}}=2$ 即双臂，同一套架构无需改动；
+- **双臂协调**：两个 token 间的自注意力让左右臂能"交换信息"，学习协调运动（如双手递物）；
+- **与相机系动作解耦对齐**：每个 EEF token 的动作在**各自选定的参考相机系**中去噪（§4.2.4 的多视角参考相机选择），token 化正好为"每臂一个参考系"提供了天然容器。
+
+**（二）End-effector-aware conditioning（EEF 感知条件注入）。** 这是 §4.2 完全未覆盖、却直接决定"相机系 delta 能否落地"的机制。除去噪时间步外，DiT 还通过 **adaLN（自适应层归一化）** 注入两个额外条件信号（`model.tex` L100-107）：
+
+$$
+\text{cond} = \mathbf{e}^{\text{timestep}} + \mathbf{e}^{\text{eef\_type}} + \mathbf{e}^{\text{aux\_flag}},
+$$
+
+1. **EEF 类型嵌入** $\mathbf{e}^{\text{eef\_type}}$：一个可学习码本，为每种末端执行器类别（单臂 / 双臂左 / 双臂右 / 自中心头部 / 移动底盘）分配一个条目，让模型对不同体态施加**体态特定的动作先验**（这与 §3.1 的体态提示相呼应，但作用于动作头内部）。
+2. **辅助标志嵌入** $\mathbf{e}^{\text{aux\_flag}}$：一个**二值嵌入**，指示当前样本是否具备标定的相机参数（内外参）。它像一个开关，在两种动作空间之间切换预测模式：
+
+$$
+\mathbf{a}_p = \begin{cases}
+{}^c_e\mathbf{R}\,{}^e_{e^*}\mathbf{R}\,{}^e_c\mathbf{R},\ {}^c_e\mathbf{R}\,{}^e\mathbf{t}_{e^*} & \text{aux\_flag}=1\ (\text{有标定} \Rightarrow \textbf{相机系 delta 模式，见公式 (4.2.1)})\\[4pt]
+\text{robot-base relative pose} & \text{aux\_flag}=0\ (\text{无标定} \Rightarrow \textbf{基座相对模式，降级})
+\end{cases}
+$$
+
+**这个降级机制是工程落地的点睛之笔**：相机系 delta 的全部优势都建立在"有精确内外参"的前提上（§4.2 也强调公式 1 对标定误差更鲁棒但仍依赖标定）。现实中大量开源数据缺乏可靠标定，辅助标志让模型在**同一套权重**里优雅退回到"基座相对模式"，既不浪费无标定数据，又保证有标定时能吃到相机系对齐的红利。它把"数据可得性"与"部署鲁棒性"缝合进了训练目标本身。
+
+#### 4.4.4 实验侧：三维度递进验证（experiment.tex §6.5.2）
+
+§6.5.2 用一张汇总表（`tab:eef_summary`）沿"从同分布到零样本"的难度阶梯，给出三个维度的证据：
+
+| 维度 | 评测设定 | 最佳基线 | Qwen-RobotManip | 增益 |
+|------|---------|---------|-----------------|------|
+| **同分布 EEF 控制质量** | RoboTwin-C2R Easy/Hard（EEF 模式） | 49.0 / 33.0（去掉 UnifiedEEF） | **72.5 / 56.6** | +23.5 / +23.6 |
+| **技能组合迁移** | CobotMagic→ARX，4 个新任务 | 12.5%（去掉 UnifiedEEF） | **55.0%** | **4.4×** |
+| **零样本跨体态迁移** | AgileX→ARX/UR5/Franka（均值） | 14.5%（joint） | **23.9%**（eef） | **1.65×** |
+
+三行数据讲了一个层层递进的故事：
+
+- **同分布：EEF > joint 的"反转"现象。** 最值得玩味的是——Qwen-RobotManip 是**唯一**一个 EEF 模式执行**超过自身 joint 模式**的变体（72.5% vs 68.1% Easy，56.6% vs 50.2% Hard）；其它所有动作空间设计在从 joint 切到 EEF 时都会**退化**。通常 EEF 控制被认为比 joint 控制更难（需要精确的笛卡尔跟踪），出现反转说明**相机系对齐产出的不是一个"凑合的替代控制接口"，而是一个真正强的 EEF 空间策略**。数据缩放实验进一步佐证：统一 EEF 表示下跨体态数据遵循干净的 log-linear 缩放律，而消融版曲线剧烈波动、预测误差显著更高——这正是"对齐解锁规模"（§9.1）在动作表示层面的直接体现。
+- **技能组合：4.4×。** 在 6K CobotMagic + 130 条 ARX 演示的联合训练下，模型在**零目标任务演示**的 4 个新 ARX 任务上达到 55.0%，是消融版（12.5%）的 4.4 倍。因为相机系 delta 把"同一操作基元"映射到与执行机器人无关的一致数值模式，模型习得的是**体态无关的技能表示**，可与新的"体态—任务"配对自由组合。
+- **零样本跨体态：1.65×，UR5 上 5.6×。** 仅在 AgileX 上训练、直接部署到从未见过的 ARX/UR5/Franka：EEF 模式均值 23.9% 远超 joint 模式 14.5%，其中 UR5 上 22.8% vs 4.1%（5.6×）。joint 空间动作是体态特定的，在未见形态上近乎随机；相机系 delta 抽象掉了运动学差异，在共享的笛卡尔/视觉空间里实现有意义的迁移。
+
+#### 4.4.5 区别与联系的系统辨析
+
+**区别（同一思想在不同环节的不同形态）：**
+
+| 辨析维度 | 2D 轨迹预测（数据侧） | 相机系 Delta 动作（模型侧） | EEF 跨体态实验（实验侧） |
+|---------|---------------------|--------------------------|------------------------|
+| 坐标空间 | 图像平面 2D 像素 $(u,v)$ | 相机坐标系 3D 位姿增量 $\mathbf{a}_p \in SE(3)$ | 评测指标（成功率） |
+| 几何强度 | **弱几何**（投影后，丢失深度） | **强几何**（保留完整 3D 位姿） | — |
+| 数据形式 | 离散文本 token（自回归） | 连续动作向量（flow-matching 去噪） | — |
+| 训练阶段 | 预训练 / VL 共训练 | 动作专家训练 + 推理 | 评测 |
+| 角色 | **监督信号 / 表示先验** | **动作表示 / 预测目标** | **验证证据** |
+| 标定依赖 | 需相机参数生成 GT（离线一次性） | 推理时需内外参（可经 aux_flag 降级） | — |
+| 已有小节 | §5.4 | §4.2 | §7 |
+
+**联系（构成"表示对齐"闭环）：** 三者本质是同一几何锚定思想在流水线上的三次投影。2D 轨迹在**像素空间**做"弱几何" grounding（便宜、可从海量无标定视频获取、天然与 VLM 的文本输出兼容），相机系 delta 在**3D 相机空间**做"强几何" grounding（精确、可执行、跨体态数值一致）；前者为后者预置视觉—运动先验，后者把先验落成可执行动作；而辅助标志的"基座相对降级模式"保证了当标定缺失时系统不至崩溃——串起了从"数据可得性"到"部署鲁棒性"的完整链路。最后由 §6.5.2 的三维度实验闭合证据环：证明这条"视觉锚定"主线确实解锁了同分布强控制、技能组合与零样本跨体态。
+
+```mermaid
+flowchart TB
+    obs["视觉观测空间<br/>(像素 / 相机系)"]
+    twoD["2D 图像轨迹<br/>弱几何 grounding<br/>离散文本 token"]
+    camDelta["相机系 SE(3) Delta<br/>强几何 grounding<br/>连续 flow-matching"]
+    fallback["基座相对模式<br/>(aux_flag=0 降级)"]
+    transfer["跨体态迁移能力<br/>(§6.5.2 三维度验证)"]
+    obs --> twoD
+    obs --> camDelta
+    twoD -->|"预训练播种视觉运动先验"| camDelta
+    camDelta -->|"标定缺失时"| fallback
+    camDelta --> transfer
+    twoD -.->|"共享视觉锚定直觉"| transfer
+```
+
+#### 4.4.6 具身智能 / VLA 视角的深层解读与局限
+
+**为什么"视觉空间锚定"能破解跨体态难题。** 跨体态迁移的根本障碍是：不同机器人的关节结构、连杆长度、基座朝向各不相同，导致**同一个操作技能在各自 joint/base 空间里的数值表示天差地别**。而所有机器人（乃至人类演示者）**共享同一个观测通道——相机图像**。把动作定义在这个共享空间里，"视觉上相似的操作 ⇒ 数值上相近的标签"这一性质便自然成立，模型得以专注于"操作技能"本身而非"如何在特定运动学下表达它"。这与 §4.1 表示对齐、§9.1"对齐解锁规模"的主线完全一致：**先消除表征碎片化，规模化才有意义**。
+
+**相关工作脉络（纵向演进）。** 把运动锚定到图像/相机空间并非 Qwen-RobotManip 独创，而是近年具身智能的一条清晰技术线：
+
+- **2D 轨迹 / 点轨迹作为运动中介**：RT-Trajectory [Gu et al., 2023] 用投影到相机视野的 2D 轨迹草图作为策略条件，实现对新任务的运动级泛化；ATM（Any-point Trajectory Modeling）[Wen et al., 2024] 在**相机坐标系**中预测未来 2D 点轨迹作为子目标，先在无动作标签视频上预训练、再用少量动作数据学策略；Track2Act [Bharadhwaj et al., 2024] 从互联网视频预测点轨迹以支持零样本操作。Qwen-RobotManip 的"2D 轨迹预测数据"正是这一思想在**大规模 VL 共训练**中的落地。
+- **图像空间指向 / 可供性（pointing / affordance）**：PIVOT、Molmo、RoboPoint、Gemini Robotics-ER 等把"在哪操作"表达为图像坐标中的点/框，与"怎么运动"的轨迹表示互补，共同构成"在像素空间做空间推理"的范式族。
+- **相机系动作表示**：Qwen-RobotManip 采用的可分离相机系 delta 形式源自 [Chen et al., 2025]，紧凑形式来自 [Zhang et al., 2026]（§4.2 已详辨）。
+
+Qwen-RobotManip 的独特贡献在于**把"数据侧的 2D 轨迹监督"与"模型侧的 3D 相机系 delta 动作"统一到同一条视觉锚定主线**，并用 EEF 类型嵌入 + 辅助标志把它工程化为一个可在有/无标定数据上通用的单一模型。
+
+**局限与批判性思考：**
+
+1. **标定依赖仍是硬约束。** 相机系 delta 在训练与推理时都需要内外参（`model.tex` L71 明确）；辅助标志虽提供了基座相对降级，但降级模式下**相机系对齐的跨体态红利随之消失**——§6.5.2 的亮眼数字建立在"有标定"前提上，无标定场景的收益上界要打折扣。
+2. **2D → 3D 的深度歧义。** 2D 轨迹预测丢失了深度信息，同一条像素轨迹可对应无穷多条 3D 运动。它只能作为"弱几何"先验，无法替代 3D 动作监督；其价值在于表示预训练而非直接控制。
+3. **预留维度的语义未明。** 40 维 token 中的 11 维预留、80 维向量尾部的 22 维共享区（§4.1）如何在动作专家中被处理，论文未详述，给复现与扩展留下不确定性。
+4. **多视角参考相机的训练随机性。** §4.2.4 的随机参考相机选择增强了鲁棒性，但也意味着推理时参考相机的选择会影响动作数值，部署时需保证训练/推理参考系的一致性。
+
+综上，这三段内容共同勾勒出 Qwen-RobotManip"运动对齐"的完整图景：**以视觉/相机坐标空间为共同锚点，用数据侧的 2D 轨迹播种、模型侧的相机系 delta 落地、实验侧的跨体态迁移验证收益**——这正是"三维对齐框架"中"运动对齐"维度最深刻的体现。
+
+#### 4.4.7 论文是否将 EEF 统一到"共同坐标系"？——跨本体/数据集/相机的深度辨析
+
+一个常见但容易误解的问题是：**Qwen-RobotManip 是否把不同构型、不同本体、不同数据集、不同相机拍摄出来的 EEF，全部变换到同一个物理世界坐标系（单一原点、单一朝向）下？**
+
+**结论先行**：论文**有讲**如何缓解 EEF 的跨源不可比性，但**并不是**把所有机器人的 EEF 硬塞进"一个全局共享世界原点"。它采用**两层互补机制**——**数据侧**把各数据集的 EEF **校正到统一坐标约定**；**模型侧**用**相机系 delta 位姿**把 EEF **动作**锚定到**共享视觉坐标系**，从而绕开"必须单一世界原点"的难题。二者合起来实现跨本体可比，而非依赖一次性的全局配准。
+
+##### 4.4.7.1 层次一：数据侧——校正到"统一约定"（literal 的坐标统一）
+
+这是最接近"统一到共同坐标系"语义的环节，发生在**训练前数据清洗管道**，且是**逐数据集（per-dataset）**执行的（`data.tex` L224–232；详见 §5.1 五阶段过滤、`data_cur4_2.md` Stage 4、`data_cur5_1.md` Stage 5）。
+
+**Stage 4：Joint–EEF 正运动学一致性**（`data.tex` L224–227）
+
+- 用各机器人 URDF + Pinocchio 计算 FK，与日志 EEF 位姿比对，识别并**修正**五类不一致：关节角符号约定、EEF/TCP 定义、旋转表示、**基座坐标系假设错误**、EEF 日志错误。
+- 关键修正动作：
+  - 恒定位置偏移 → 调整 **TCP** 定义；
+  - **双臂肩部相对坐标 → 变换到 world frame**（shoulder-relative → world）。
+- 论文明确发现：**同一机器人型号在不同数据集中关节角约定都可能不同**——这正是"不同数据集 EEF 不可比"的根源之一。
+
+**Stage 5：基座系与 EEF 朝向对齐**（`data.tex` L229–232）
+
+- 施加**逐数据集的旋转修正**，使所有 EEF 位姿满足规范约定：**正 $x$ 轴一致对应机器人正前方**。
+- 目的：让 80 维统一 state 中的 EEF 块在**几何约定**上跨本体一致。
+
+> **重要澄清**：此处的"统一"是**统一约定（convention）**——轴向、TCP、符号、肩→世界系——而**不是**给所有机器人一个共享的物理原点。每个本体的**绝对 EEF state** 仍表达在**各自 base frame** 中（`model.tex` L49：*"For the state vector, all values are expressed in absolute coordinates"*），再叠加 Stage 3 的分位数归一化 $[q_1, q_{99}] \to [-1, 1]$。
+
+##### 4.4.7.2 层次二：模型侧——相机系 delta，用"共享视觉锚点"替代"单一世界原点"
+
+对 EEF 的**动作（action）**，论文**不追求**把所有轨迹表达在同一个 world frame 里，而是换思路（`model.tex` L58–118；§4.2、§4.4.2–4.4.3）：
+
+**相机系 delta 位姿**（`model.tex` L66–89）
+
+- 不用 base-frame 绝对位姿，也不用 world-frame delta，而将 EEF 动作表达在**参考相机坐标系**下：
+
+$$
+\mathbf{a}_p = \begin{bmatrix} {}^c_e\mathbf{R}\,{}^e_{e^*}\mathbf{R}\,{}^e_c\mathbf{R} & {}^c_e\mathbf{R}\,{}^e\mathbf{t}_{e^*} \\ \mathbf{0} & 1 \end{bmatrix}
+$$
+
+- 核心性质：**图像中看起来相似的动作，在动作空间中也数值相近**，天然利于跨本体迁移；训练与推理需标定相机内外参（`model.tex` L71）。
+
+**这如何解决"不同相机 / 不同本体"？**
+
+| 异构来源 | 论文机制 | 是否"单一世界原点" |
+|---------|---------|-------------------|
+| **不同相机** | 每 image token 用对应相机外参做 **CaPE**；每 state/action token 用**选定参考相机**外参；CaPE 为旋转编码，**点积注意力中世界系原点代数消去**，只剩 token 间相对位姿（`model.tex` L94–95） | 否，靠相对几何 |
+| **多视角参考相机** | 单臂随机选外部/腕部相机；双臂共享头部或左右腕各一参考系（`model.tex` L109–118） | 否 |
+| **不同本体** | 80 维规范模板 + 逐维 mask 统一结构；EEF 动作靠相机系 delta | 否 |
+| **无标定数据** | **Auxiliary flag**：有标定 → 相机系 delta；无标定 → **robot-base relative 降级**（`model.tex` L105） | 降级后回到基座相对 |
+
+##### 4.4.7.3 两层机制的分工（对照表）
+
+| 维度 | 数据侧（Stage 4 / 5） | 模型侧（相机系 delta + CaPE） |
+|------|----------------------|------------------------------|
+| 主要处理对象 | **State** 中的绝对 EEF 位姿 + 数据校正 | **Action** 中的 EEF 增量 |
+| "统一"的含义 | 统一**坐标约定**（$+x$ 前向、TCP、符号、肩→世界） | 统一**视觉锚点**（相机系；世界原点被 CaPE 代数抵消） |
+| 不同数据集 / 本体 | ✅ 逐数据集 URDF/FK/旋转校正 | ✅ 视觉相似 ⇒ 数值相近 |
+| 不同相机 | ✗（Stage 4/5 不针对相机外参） | ✅ 外参编码 + 参考相机选择 |
+| 是否需要单一全局世界原点 | ❌ 否（per-robot base + 统一约定） | ❌ 否（相机系相对表示） |
+| 关键依赖 | URDF、Pinocchio、per-dataset 配置 | 相机内外参（无则 auxiliary flag 降级） |
+
+```mermaid
+flowchart TB
+    raw["异构原始 EEF<br/>不同构型/本体/数据集/相机"]
+    subgraph dataLevel["数据侧: 校正到统一约定"]
+        s4["Stage4 FK一致性<br/>TCP/符号/肩→世界/基座修正"]
+        s5["Stage5 基座朝向对齐<br/>+x = 机器人前向"]
+        s4 --> s5
+    end
+    subgraph modelLevel["模型侧: 共享视觉锚点"]
+        cam["相机系 delta 位姿"]
+        cape["CaPE: 世界原点代数抵消"]
+        aux["auxiliary flag<br/>无标定则 base-relative 降级"]
+        cam --> cape --> aux
+    end
+    raw --> dataLevel --> modelLevel --> out["跨本体数值可比的统一表示"]
+```
+
+##### 4.4.7.4 与 §4.1「绝对坐标」state 的关系
+
+§4.1 强调 state 向量**全部用绝对坐标**（关节编码器读数、base frame 下的 EEF 位姿等）。这与 §4.4.7 并不矛盾：
+
+- **State（绝对）**：经 Stage 4/5 校正后，各数据集的 EEF **约定一致**（同一语义下的 $x,y,z,R$），再经分位数归一化进入 80 维槽位；**仍是在各自机器人 base frame 下的绝对值**，不是全局 SLAM 世界系。
+- **Action（相对）**：EEF 部分为**相机系 delta**（§4.2），与 state 的 base-frame 绝对 EEF **故意分离**——state 供本体感知与 FK 一致性，action 供跨体态可迁移的控制接口。
+
+因此，"统一到共同坐标系"在论文里应理解为：**state 侧 = 统一约定下的 base-frame 绝对 EEF；action 侧 = 相机系下的相对运动**——而非单一 $(W)$ 世界系下的 $({}^W\mathbf{T}_{EEF})$。
+
+##### 4.4.7.5 论文**没有**做什么（避免过度解读）
+
+论文**未给出**如下工程流程：
+
+- 将机器人 A 的 base frame **显式配准**到机器人 B 的 base frame，落到**同一物理世界原点**；
+- 把所有多相机画面 **重投影到统一 world frame** 后再写 EEF；
+- 跨数据集共享一套 **global SLAM / 标定板世界系** 的绝对 EEF 标签。
+
+跨本体"可比性"来自 **统一约定 + 相机作为共享参考系** 的组合，这是 `introduction.tex` 中 *"alignment first, then scale"* 在运动几何上的具体落地。若业务需要"真·全局世界系配准"，需在 Stage 4/5 之外**额外扩展**（例如 per-scene 外参标定、多机器人 simultaneous localization）；本地 `data_cur4_2.md`、`data_cur5_1.md` 已覆盖论文 Stage 4/5 的可落地算子设计，可作为该扩展的前序基础。
+
+##### 4.4.7.6 小结
+
+| 问题 | 论文答案 |
+|------|---------|
+| 是否统一到**单一物理世界原点**？ | **否**（state 在各自 base frame；action 在参考相机系；CaPE 消去全局原点） |
+| 是否统一**坐标约定与 EEF 语义**？ | **是**（Stage 4 TCP/符号/肩→世界；Stage 5 $+x$ 前向） |
+| 是否统一**跨相机的动作数值**？ | **是**（相机系 delta + CaPE + 参考相机策略；无标定则降级） |
+| 与 §4.4 前三段（2D 轨迹 / 相机 delta / 实验）的关系 | Stage 4/5 为 **state 绝对 EEF** 扫清约定混乱；§4.4 的相机 delta 为 **action** 提供视觉锚定；二者共同支撑 §6.5.2 的跨体态 EEF 迁移实验 |
+
+#### 4.4.8 深入解析："双臂肩部相对坐标 → 变换到 world frame"
+
+> 本节聚焦 §4.4.7.1 中提到的 Stage 4 关键修正动作——**"双臂肩部相对坐标 → 变换到 world frame（shoulder-relative → world）"**。论文原文（`data.tex` L225）：  
+> *"if bimanual end-effector poses are recorded relative to each shoulder rather than the world frame, we transform them into the world frame."*  
+>  
+> 这是五阶段数据清洗流水线中 Stage 4（FK Consistency）的一个具体修正动作。本节先深入浅出地解释其含义与必要性，再说明如何用 data-juicer 代码库实现该目标。
+
+##### 4.4.8.1 问题背景：什么是"肩部相对坐标"？
+
+**直觉类比**
+
+想象你是一个双臂机器人，你的身体中心（base frame 原点）在腰部。有人问你"你的左手在哪？"，你有两种回答方式：
+
+- **方式 A（base frame）**："我的左手在身体中心**正前方 0.4m、左侧 0.05m、高度 0.35m**"——这是相对于身体中心的坐标。
+- **方式 B（shoulder frame）**："我的左手在**左肩正前方 0.4m、右侧 0.285m、高度 0.23m**"——这是相对于左肩的坐标。
+
+同样的物理手部位置，两种描述的数值完全不同。这就是 "shoulder-relative" 与 "base-frame" 坐标的区别。
+
+**技术定义**
+
+在双臂机器人的 URDF 运动链中，存在以下坐标系层级：
+
+```mermaid
+graph TD
+    BASE["🤖 Base Frame<br/>机器人基座 (base_link)<br/>整机参考原点"]
+    TORSO["🧍 Torso Chain<br/>躯干运动链<br/>(torso_joint1→2→3)"]
+    SL["💪 Left Shoulder Frame<br/>左臂根关节<br/>(left_arm_base_joint)<br/>偏移: (0, +0.335, +0.123) m"]
+    SR["💪 Right Shoulder Frame<br/>右臂根关节<br/>(right_arm_base_joint)<br/>偏移: (0, −0.335, +0.123) m"]
+    AL["🦾 Left Arm Chain<br/>left_arm_joint1→6"]
+    AR["🦾 Right Arm Chain<br/>right_arm_joint1→6"]
+    EL["✋ Left EEF<br/>左手末端执行器"]
+    ER["✋ Right EEF<br/>右手末端执行器"]
+
+    BASE --> TORSO
+    TORSO -->|"固定偏移 T_SL"| SL
+    TORSO -->|"固定偏移 T_SR"| SR
+    SL --> AL
+    SR --> AR
+    AL --> EL
+    AR --> ER
+
+    style BASE fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style TORSO fill:#e3f2fd,stroke:#1565c0,color:#000
+    style SL fill:#fff3e0,stroke:#e65100,color:#000
+    style SR fill:#fff3e0,stroke:#e65100,color:#000
+    style EL fill:#fce4ec,stroke:#c62828,color:#000
+    style ER fill:#fce4ec,stroke:#c62828,color:#000
+```
+
+上图中的偏移数值来自 Galaxea R1 Lite 的 URDF（`b/d/urdf/r1_lite.urdf`）。**关键点**：
+
+| 坐标系 | 英文名 | 定义 | 来源 |
+|--------|--------|------|------|
+| **Base Frame** | 基座坐标系 | URDF 根链接 `base_link` 的原点 | 机器人出厂定义 |
+| **Shoulder Frame** | 肩部坐标系 | 各臂根关节处的局部坐标系 | URDF 中 `left/right_arm_base_joint` 的 `<origin>` |
+| **两者关系** | $\mathbf{T}_S^B$ | shoulder 相对于 base（经过 torso chain）的**固定刚体偏移** | 从 URDF 的运动链提取 |
+
+**为什么有些数据集用肩部坐标系记录？**
+
+某些双臂平台（如 ALOHA 的部分数据集、部分 AgiBotWorld 数据）的采集 SDK 对**每只手臂独立**做 FK（正向运动学），将 EEF 位姿直接输出到**该臂的肩部坐标系**下——因为每只手臂的 URDF 子链就是以肩关节为根的。这种做法的逻辑是：
+
+```
+采集 SDK 的视角：
+  左臂 URDF 子链：left_arm_base_link → joint1 → ... → joint6 → EEF
+  右臂 URDF 子链：right_arm_base_link → joint1 → ... → joint6 → EEF
+
+  SDK 分别对两条子链做 FK → 得到各自子链根部（= 肩部）下的 EEF 位姿
+  ✓ 在单臂场景下：shoulder = base，没有问题
+  ✗ 在双臂场景下：两臂的 shoulder 原点不同 → 两臂 EEF 不在同一坐标系中！
+```
+
+##### 4.4.8.2 为什么不能直接用？——用 Galaxea R1 Lite 的具体数值举例
+
+以 R1 Lite 的 URDF 数据为例，左右肩关节在 `torso_link3` 下的固定偏移为：
+
+$$
+\mathbf{t}_{\text{left\_shoulder}} = (0,\; +0.335,\; +0.123)\;\text{m}, \quad
+\mathbf{t}_{\text{right\_shoulder}} = (0,\; -0.335,\; +0.123)\;\text{m}
+$$
+
+两肩在 y 轴上**对称分布**，间距 $0.335 \times 2 = 0.67\;\text{m}$。现在假设一个简单场景——左右手末端都在机器人**正前方 0.4m 处**的对称位置（左手偏左 0.05m，右手偏右 0.05m）：
+
+**在 base frame 下的真实坐标**（正确）：
+
+| 臂 | $x$ (前方) | $y$ (左正右负) | $z$ (高度) |
+|----|-----------|--------------|-----------|
+| 左臂 EEF | 0.40 | +0.05 | 0.35 |
+| 右臂 EEF | 0.40 | −0.05 | 0.35 |
+
+左右手 $y$ 坐标对称，间距 0.1m——**符合物理直觉**。
+
+**在各自 shoulder frame 下的坐标**（有问题）：
+
+由于左肩在 base frame 的 $y = +0.335$ 处，左手相对于左肩的 $y$ 坐标 = $0.05 - 0.335 = -0.285$。类似地：
+
+| 臂 | $x$ | $y$ (相对各自肩部) | $z$ |
+|----|-----|--------------------|-----|
+| 左臂 EEF | 0.40 | **−0.285** | 0.227 |
+| 右臂 EEF | 0.40 | **+0.285** | 0.227 |
+
+现在左右手的 $y$ 坐标差距 = $0.285 \times 2 = 0.57$ m——**远大于实际的 0.1m**！如果直接把这两个坐标塞进 80 维向量的左臂和右臂 EEF 槽位，模型会误以为两只手相距半米以上，与视觉画面严重矛盾。
+
+下图直观展示了两种坐标系下的对比：
+
+```
+                         正前方 (x)
+                            ↑
+                            |
+    ·····左肩·····──────────|──────────·····右肩·····
+    (0,+0.335)              |              (0,−0.335)
+         |                  |                  |
+         |   ← 0.285 →  [LEFT_HAND]           |
+         |              (0.40, +0.05)          |
+         |                  |          [RIGHT_HAND]  ← 0.285 →
+         |                  |          (0.40, −0.05)           |
+         |                  |                  |               |
+         ·                  · base (0,0)       ·               ·
+
+    在 base frame 下：  LEFT_HAND.y = +0.05    RIGHT_HAND.y = −0.05    差距 = 0.10 m ✓
+    在 shoulder frame 下：LEFT_HAND.y = −0.285   RIGHT_HAND.y = +0.285   差距 = 0.57 m ✗
+```
+
+**结论**：如果不做 shoulder → base 变换，两臂 EEF 的相对位置关系在数值上会被严重扭曲。这对 VLA 模型学习双臂协调（如同时抓取一个大物体的两端、递手、折叠毛巾等任务）是致命的。
+
+##### 4.4.8.3 变换公式：从肩部坐标系到世界（基座）坐标系
+
+变换本质是一个标准的**刚体坐标系变换**——将在 shoulder frame 下表达的 EEF 位姿，变换到 base frame（≈ world frame，见附录 D.3 类别 ①）下。
+
+**齐次变换矩阵表示**（以左臂为例）：
+
+$$
+\mathbf{T}_{\text{EEF,left}}^{\text{base}} = \mathbf{T}_{\text{shoulder,left}}^{\text{base}} \cdot \mathbf{T}_{\text{EEF,left}}^{\text{shoulder}}
+$$
+
+其中 $\mathbf{T}_{\text{shoulder,left}}^{\text{base}} \in SE(3)$ 是左肩在 base frame 中的位姿——一个 $4 \times 4$ 齐次变换矩阵：
+
+$$
+\mathbf{T}_S^B = \begin{bmatrix} \mathbf{R}_S^B & \mathbf{t}_S^B \\ \mathbf{0}^\top & 1 \end{bmatrix}
+$$
+
+**展开为位置和旋转分量**：
+
+$$
+\mathbf{p}^{\text{base}} = \mathbf{R}_S^B \cdot \mathbf{p}^{\text{shoulder}} + \mathbf{t}_S^B
+$$
+
+$$
+\mathbf{R}^{\text{base}} = \mathbf{R}_S^B \cdot \mathbf{R}^{\text{shoulder}}
+$$
+
+**其中**：
+- $\mathbf{p}^{\text{shoulder}} \in \mathbb{R}^3$：EEF 在 shoulder frame 下的位置（数据集记录的值）
+- $\mathbf{R}^{\text{shoulder}} \in SO(3)$：EEF 在 shoulder frame 下的朝向
+- $\mathbf{R}_S^B \in SO(3)$：shoulder frame 到 base frame 的旋转
+- $\mathbf{t}_S^B \in \mathbb{R}^3$：shoulder 原点在 base frame 中的平移
+
+> **$\mathbf{T}_S^B$ 的来源**：从 URDF 的运动链中提取。对于**固定底座**机器人（如 ALOHA），$\mathbf{T}_S^B$ 是常数（不随时间变化）。对于**移动底座 + 活动躯干**的机器人（如 Galaxea R1 Lite，有 3 个活动躯干关节），$\mathbf{T}_S^B$ **随时间变化**——因为躯干关节的运动会改变肩膀在 base frame 中的位置。此时需要逐帧从当前的躯干关节角通过 FK 计算当前帧的 $\mathbf{T}_S^B(t)$。
+
+**数值验证**（继续 §4.4.8.2 的例子）：
+
+R1 Lite 左肩在（躯干零位时）$\mathbf{R}_S^B = \mathbf{I}$（无旋转偏移），$\mathbf{t}_S^B = (0, +0.335, +0.123)$ m。对肩部坐标下的左手 EEF $\mathbf{p}^{\text{shoulder}} = (0.40, -0.285, 0.227)$：
+
+$$
+\mathbf{p}^{\text{base}} = \mathbf{I} \cdot (0.40, -0.285, 0.227) + (0, +0.335, +0.123) = (0.40, +0.05, 0.35) \quad \checkmark
+$$
+
+与真实 base frame 坐标完全一致。
+
+##### 4.4.8.4 ALOHA 类双臂场景的具体示例
+
+[ALOHA](https://tonyzhaozh.github.io/aloha/) 平台是这一问题最典型的实际案例。其结构为：
+
+```
+ALOHA 平台结构：
+┌─────────────────────────────────────────────┐
+│                 固定底座                      │
+│                                              │
+│  ┌───────────┐              ┌───────────┐   │
+│  │ ViperX-300 │              │ ViperX-300 │   │
+│  │  左臂(6DOF)│              │  右臂(6DOF)│   │
+│  │ 肩部偏移:  │              │ 肩部偏移:  │   │
+│  │ y = +0.15m │              │ y = -0.15m │   │
+│  └─────┬─────┘              └─────┬─────┘   │
+│        │ FK                       │ FK       │
+│     左手 EEF                   右手 EEF      │
+└─────────────────────────────────────────────┘
+```
+
+当 ALOHA 的采集代码对两条臂分别做 FK 时，输出的 EEF 位姿自然是在各自 shoulder frame 下的。具体来说：
+
+| 场景 | 物理事实 | shoulder frame 下数值 | 问题 |
+|------|---------|---------------------|------|
+| 两手在正前方并拢 | 左手 $y \approx +0.05$，右手 $y \approx -0.05$ | 左手 $y = -0.10$，右手 $y = +0.10$ | 数值差距被放大 |
+| 左手在右侧递东西 | 左手 $y = -0.20$ | 左手 $y = -0.20 - 0.15 = -0.35$ | 绝对值远离正常工作空间 |
+| 双手合作折毛巾 | 两手逐渐靠拢 | y 坐标变化趋势正确但偏移量错误 | 空间距离计算失真 |
+
+**变换后**：两臂 EEF 统一到 base frame → 空间关系在数值上忠实反映物理现实（如"左手在右手上方 10cm"在数值上确实 $\Delta z = +0.10$ m）。
+
+论文的 RDT-1B 数据（~29h，ALOHA 平台双臂演示）和部分 RoboMIND ALOHA 子集就可能存在这一问题——Stage 4 的 shoulder → world 修正正是为此设计。
+
+##### 4.4.8.5 在论文整体架构中的定位
+
+**数据流位置**：shoulder → base 变换在五阶段流水线中的位置如下：
+
+```mermaid
+flowchart LR
+    RAW["原始数据<br/>(异构 EEF 约定)"]
+    S1["Stage 1<br/>突变检测"]
+    S2["Stage 2<br/>趋势对齐"]
+    S3["Stage 3<br/>极值过滤"]
+    S4["Stage 4<br/>FK 一致性"]
+    S5["Stage 5<br/>基座对齐"]
+    OUT["清洁数据<br/>→ 80维向量<br/>→ 训练"]
+
+    RAW --> S1 --> S2 --> S3 --> S4 --> S5 --> OUT
+
+    subgraph S4_sub["Stage 4 的具体修正"]
+        direction TB
+        A["TCP 偏移修正"]
+        B["关节符号翻转"]
+        C["肩部→base 变换<br/>(本节主题)"]
+        D["EEF 日志替换"]
+    end
+
+    S4 -.-> S4_sub
+
+    style S4 fill:#fff3e0,stroke:#e65100,color:#000
+    style C fill:#ffccbc,stroke:#bf360c,color:#000
+```
+
+**Stage 4 shoulder→world 与其他修正的对比**：
+
+| 修正类型 | 原因 | 操作 | 是否需要 FK 计算 | 改动目标 |
+|---------|------|------|:---:|---------|
+| **TCP 偏移** | 法兰中心 vs 工具尖端定义不同 | $\mathbf{p}' = \mathbf{p}_{\text{FK}} + \mathbf{R}_{\text{FK}} \cdot \mathbf{d}_{\text{TCP}}$ | 是 | EEF 位置 |
+| **关节符号翻转** | 数据集用反向关节角约定 | $\mathbf{q}' = \mathbf{S} \cdot \mathbf{q}$，$\mathbf{S} = \text{diag}(\pm 1)$ | 是（验证） | 关节角（+ 可选 EEF 重算） |
+| **肩部→base 变换** | 双臂 EEF 在各自肩部坐标系下 | $\mathbf{p}' = \mathbf{R}_S \cdot \mathbf{p} + \mathbf{t}_S$ | **否**（仅需 URDF 的固定偏移） | EEF 位姿 |
+| **EEF 日志替换** | 记录的 EEF 完全错误 | 用 FK 计算结果覆盖 | 是 | EEF 位姿 |
+
+**与 Stage 5 的关系**：两者是**级联**关系，不可跳过或调换顺序：
+
+| 步骤 | 目的 | 输入 | 输出 |
+|------|------|------|------|
+| Stage 4 shoulder→base | 消除**数据记录坐标系**的不一致 | 两臂 EEF 可能在不同的 shoulder frame 下 | 两臂 EEF 统一到同一个 base frame 下 |
+| Stage 5 base frame alignment | 统一**不同数据集 base frame** 的轴向约定 | base frame 轴向可能因标定/安装不同 | 所有数据集 $+x$ = 机器人前向 |
+
+先做 Stage 4 确保同一机器人内部的坐标自洽，再做 Stage 5 确保跨机器人/数据集的坐标约定一致。若跳过 Stage 4 直接做 Stage 5，肩部记录的误差会被 Stage 5 "锁住"——旋转校正只统一朝向，不修正平移偏移。
+
+##### 4.4.8.6 实现概览：如何用 data-juicer 达到该目标
+
+本节说明如何在 data-juicer 框架中实现 shoulder → base 变换。方案遵循"扩展大于修改"原则，所有代码写入 `data_juicer/_au/`。
+
+**现有资产回顾**：
+
+| 资产 | 路径 | 状态 | 与本任务的关系 |
+|------|------|------|------------|
+| Stage 5 Mapper | `data_juicer/_au/ops/mapper/robot_base_frame_alignment_mapper.py` | ✅ 已实现（440 行） | 提供旋转表示转换工具（`_rot_from_repr`/`_rot_to_repr`）可复用 |
+| Stage 4 v2 设计文档 | `b/d/QwenRobotmanip/data_cur4_2.md` | 📋 设计完成 | 含 `shoulder_to_world` 的代码设计、配置格式、测试用例 |
+| URDF 文件 | `b/d/urdf/r1_lite.urdf` | ✅ 可用 | 含 shoulder joint offset 数据 |
+| Stage 1/2/3 Filters | `data_juicer/_au/ops/filter/` | ✅ 已实现 | 级联兼容性已验证 |
+
+**方案概述**（基于 `data_cur4_2.md` v2 设计）：
+
+shoulder → world 变换是 **`robot_fk_consistency_mapper`**（Stage 4 Mapper）的一种修正模式，不需要独立算子。整体架构分为两趟：
+
+```mermaid
+flowchart TB
+    subgraph Pass1["Pass 1: 离线校准（calibrate_fk_corrections.py）"]
+        direction TB
+        URDF["URDF 文件"] --> PARSE["解析 shoulder joint<br/>origin xyz rpy"]
+        DATA["采样 episodes"] --> FK_CHECK["FK 计算 + EEF 比对"]
+        PARSE --> DETECT["检测修正类型:<br/>TCP? 符号? 肩系?"]
+        FK_CHECK --> DETECT
+        DETECT --> JSON["输出 fk_corrections.json"]
+    end
+
+    subgraph Pass2["Pass 2: 在线修正（robot_fk_consistency_mapper）"]
+        direction TB
+        JSON2["读取 fk_corrections.json"] --> MAPPER["Mapper.process_single()"]
+        SAMPLE["输入 sample"] --> MAPPER
+        MAPPER --> BRANCH{"plan.type?"}
+        BRANCH -->|shoulder_to_world| RIGID["刚体变换:<br/>p' = R_s · p + t_s<br/>R' = R_s · R"]
+        BRANCH -->|tcp_offset| TCP["TCP 偏移修正"]
+        BRANCH -->|consistent| PASS["pass-through"]
+        RIGID --> OUT["输出修正后 sample"]
+        TCP --> OUT
+        PASS --> OUT
+    end
+
+    Pass1 --> Pass2
+
+    style RIGID fill:#fff3e0,stroke:#e65100,color:#000
+```
+
+**关键代码逻辑**（来自 `data_cur4_2.md` v2 §8.3 的核心实现）：
+
+```python
+# robot_fk_consistency_mapper.py 中 shoulder_to_world 分支（简化）
+elif ptype == "shoulder_to_world":
+    # 从配置中获取该臂的 4×4 齐次变换矩阵
+    R_s, t_s = _split(np.asarray(layout["shoulder_transform"], float))
+    # 批量位置变换：p' = R_s · p + t_s
+    p = states[:, layout["eef_pos_dims"]]           # shape (T, 3)
+    states[:, layout["eef_pos_dims"]] = p @ R_s.T + t_s
+    # 批量旋转变换：R' = R_s · R
+    if layout.get("eef_rot_dims"):
+        R = self._rot_from_repr(                    # 从存储表示解码
+            states[:, layout["eef_rot_dims"]],
+            layout["eef_rot_type"])                  # 支持 euler/quat/rotvec/rot6d
+        Rw = np.einsum("ij,tjk->tik", R_s, R)       # 左乘 R_s，批量
+        states[:, layout["eef_rot_dims"]] = \
+            self._rot_to_repr(Rw, layout["eef_rot_type"])  # 编码回原表示
+```
+
+代码要点：
+- **无需 FK 计算**：与 TCP/符号修正不同，shoulder → world 只需要肩部的固定变换矩阵，不需要从关节角计算 FK
+- **批量向量化**：`p @ R_s.T + t_s` 对整段 episode 的 $T$ 帧一次性完成
+- **旋转表示无关**：通过 `_rot_from_repr`/`_rot_to_repr` 解码/编码，支持 euler、quaternion、rotation vector、6D 连续旋转等多种表示
+- **双臂独立处理**：`arm_layouts` 配置列表中左右臂各有独立的 `shoulder_transform`，循环逐臂处理
+
+**配置示例**（`fk_corrections.json` 中的 shoulder_to_world 条目）：
+
+```json
+{
+  "aloha_dataset_X": {
+    "type": "shoulder_to_world",
+    "arm_layouts": [
+      {
+        "name": "left",
+        "eef_pos_dims": [7, 8, 9],
+        "eef_rot_dims": [10, 11, 12, 13, 14, 15],
+        "eef_rot_type": "rot6d",
+        "shoulder_transform": [
+          [1, 0, 0, 0],
+          [0, 1, 0, 0.15],
+          [0, 0, 1, 0.30],
+          [0, 0, 0, 1]
+        ]
+      },
+      {
+        "name": "right",
+        "eef_pos_dims": [36, 37, 38],
+        "eef_rot_dims": [39, 40, 41, 42, 43, 44],
+        "eef_rot_type": "rot6d",
+        "shoulder_transform": [
+          [1, 0, 0, 0],
+          [0, 1, 0, -0.15],
+          [0, 0, 1, 0.30],
+          [0, 0, 0, 1]
+        ]
+      }
+    ]
+  }
+}
+```
+
+上例中左肩在 base frame 的 $(0, +0.15, +0.30)$ m，右肩在 $(0, -0.15, +0.30)$ m（ALOHA 典型值），旋转为单位矩阵（肩部无旋转偏移）。
+
+**YAML recipe 中的位置**（在 Stage 3 之后、Stage 5 之前）：
+
+```yaml
+process:
+  # Stage 1-3: Filters (已有)
+  - robot_sudden_change_filter: { ... }
+  - robot_state_action_alignment_filter: { ... }
+  - robot_extreme_value_filter: { ... }
+  # Stage 4: FK Consistency Mapper (含 shoulder→world)
+  - robot_fk_consistency_mapper:
+      corrections_path: 'path/to/fk_corrections.json'
+      top_level_state_key: 'states'
+      # arm_layouts 从 corrections JSON 中按 embodiment 自动加载
+  # Stage 5: Base Frame Alignment Mapper (已有)
+  - robot_base_frame_alignment_mapper: { ... }
+```
+
+##### 4.4.8.7 与 Galaxea R1 Lite 数据的适用性分析
+
+从现有的 Galaxea R1 Lite 数据集分析（`CncRutCbl`、`OpnClsDr`）来看，其 LeRobot v2.1 格式中 EEF 列名为分立列（如 `observation.state.left_ee`、`action.left_ee`），而非 80 维统一向量。**当前 Galaxea 数据是否存在 shoulder-relative 问题需要实际验证**：
+
+**验证方法**：
+
+1. 加载若干帧的关节角 + 躯干关节角
+2. 从 URDF 计算完整 FK 链（base → torso1→2→3 → left_arm_base → joint1→...→6 → EEF）
+3. 将 FK 推导的 EEF 位姿与数据集记录的 EEF 位姿比对
+4. 如果一致（误差 < 传感器噪声）→ 数据已在 base frame 下，无需 shoulder_to_world（pass-through）
+5. 如果存在恒定偏移且偏移值 ≈ shoulder offset → 确认为肩部坐标系记录，需修正
+
+**R1 Lite 的特殊性**：由于 R1 Lite 有 **3 个活动躯干关节**（`torso_joint1/2/3`），shoulder 相对于 base 的变换 $\mathbf{T}_S^B$ **不是常数**，而是随躯干关节角 $\mathbf{q}_{\text{torso}}$ 变化：
+
+$$
+\mathbf{T}_S^B(t) = \mathbf{T}_{\text{base→torso1}}(q_{\text{t1}}) \cdot \mathbf{T}_{\text{torso1→torso2}}(q_{\text{t2}}) \cdot \mathbf{T}_{\text{torso2→torso3}}(q_{\text{t3}}) \cdot \mathbf{T}_{\text{torso3→shoulder}}^{\text{fixed}}
+$$
+
+这意味着如果 R1 Lite 数据需要 shoulder → base 修正，**不能像 ALOHA 那样使用一个固定的变换矩阵**，而需要逐帧根据躯干关节角计算 $\mathbf{T}_S^B(t)$。这一逐帧 FK 计算可以在 Pass-1 校准阶段完成，生成每帧的 shoulder transform 序列，或在 Mapper 中实时计算（需要读取 URDF 和躯干关节角）。
+
+此场景属于 `data_cur4_2.md` 中规划的 **M3 阶段**（真实 URDF 升级），在当前的 M1（合成数据端到端验证）和 M2（五阶段级联集成）之后落地。
 
 ---
 
@@ -1632,6 +2571,12 @@ Qwen-RobotManip 是 2026 年机器人操控基础模型领域的标杆性工作 
 45. **RoboCasa365** (2026). RoboCasa365: A Large-Scale Benchmark for Long-Horizon Household Manipulation.
 
 46. **EBench** (2026). EBench: An Embodied Benchmark for Multi-task Manipulation Evaluation.
+
+47. **Gu, J. et al.** (2023). RT-Trajectory: Robotic Task Generalization via Hindsight Trajectory Sketches. *arXiv:2311.01977*. [链接](https://rt-trajectory.github.io/)
+
+48. **Wen, C. et al.** (2024). Any-point Trajectory Modeling for Policy Learning (ATM). *RSS 2024, arXiv:2401.00025*. [链接](https://arxiv.org/abs/2401.00025)
+
+49. **Bharadhwaj, H. et al.** (2024). Track2Act: Predicting Point Tracks from Internet Videos Enables Generalizable Robot Manipulation. *arXiv:2405.01527*. [链接](https://homangab.github.io/track2act/)
 
 ---
 
@@ -2473,3 +3418,266 @@ $K_{\text{repeat}} = 8$ 是一个**简单但高效**的训练优化策略 [Yuan 
 5. **不是什么**：不是推理时的去噪步数（那是 4 步 Euler 积分，顺序执行）
 
 用一句话总结：**$K_{\text{repeat}}$ 让模型花一次"看图理解"的代价，从 8 个不同的"噪声角度"学习同一个动作——既省钱，又学得更稳。**
+
+---
+
+## 附录 D：相关知识——"Base Frame" 与 "World Frame" 辨析
+
+> 本附录系统梳理本文档中反复出现的 "base frame" 和 "world frame" 两个术语。由于 Qwen-RobotManip 的设计同时涉及数据侧的坐标约定统一（Stage 4/5）和模型侧的相机坐标系动作表示（§4.2），这两个术语在不同上下文中承担不同角色，容易引起混淆。本附录先给出机器人学中的标准定义，再逐一辨析本文各处的具体含义。
+
+### D.1 机器人学中的坐标系体系
+
+在进入具体辨析之前，先建立坐标系之间的层级关系。一个典型的机器人操作场景涉及以下坐标系：
+
+```mermaid
+graph TD
+    W["🌍 World Frame<br/>全局世界坐标系<br/>(SLAM / 标定板定义)"]
+    B["🤖 Base Frame<br/>机器人基座坐标系<br/>(固定在底座上)"]
+    S["💪 Shoulder Frame<br/>肩部坐标系<br/>(双臂各自的起点)"]
+    E["✋ EEF Frame<br/>末端执行器坐标系<br/>(法兰 / TCP)"]
+    C["📷 Camera Frame<br/>相机坐标系<br/>(光心为原点)"]
+
+    W -->|"外参 T_WB<br/>(机器人安装位姿)"| B
+    B -->|"FK(q₁..qₙ)<br/>(正向运动学)"| E
+    B -->|"固定偏移<br/>(URDF 定义)"| S
+    S -->|"FK(q₁..qₙ)<br/>(臂关节链)"| E
+    W -->|"外参 [R|t]<br/>(相机标定)"| C
+
+    style W fill:#fff3e0,stroke:#e65100,color:#000
+    style B fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style S fill:#e3f2fd,stroke:#1565c0,color:#000
+    style E fill:#fce4ec,stroke:#c62828,color:#000
+    style C fill:#f3e5f5,stroke:#6a1b9a,color:#000
+```
+
+**关键定义**：
+
+| 坐标系 | 英文名 | 原点 | 固定/运动 | 典型用途 |
+|--------|--------|------|-----------|----------|
+| **World Frame** | 世界坐标系 | 由 SLAM 或标定板定义的全局原点 | 固定 | 多机器人配准、全局定位 |
+| **Base Frame** | 基座坐标系 | 机器人底座中心（URDF 根链接） | 固定（相对于机器人） | EEF 位姿表达、FK 计算 |
+| **Shoulder Frame** | 肩部坐标系 | 双臂机器人各臂根关节 | 固定（相对于 base） | 部分数据集记录双臂的局部坐标 |
+| **EEF Frame** | 末端执行器坐标系 | 法兰中心或 TCP | 运动 | 抓取姿态、接触力 |
+| **Camera Frame** | 相机坐标系 | 相机光心 | 固定/运动 | 视觉-动作对齐 |
+
+> **注意**：在固定底座机器人中（如 Franka Panda、UR5），Base Frame 与 World Frame 之间通常只差一个**恒定的刚体变换** $\mathbf{T}_{WB}$。很多单机器人数据集直接令 $\mathbf{T}_{WB} = \mathbf{I}$（即 base = world），这正是两个术语容易混淆的根源。
+
+---
+
+### D.2 "Base Frame" 在本文中的五类用法
+
+本文档中 "base frame"（或"基坐标系"）的所有出现都围绕**机器人基座坐标系**这一核心概念，但在不同上下文中承担不同角色。以下按语义分类：
+
+#### 类别 ①：EEF 状态的参考坐标系
+
+> **出现位置**：§4.1.2a（L614）、§4.1 关节空间讨论（L670）、§4.4.7（L1259, 1314, 1316, 1317, 1319, 1335）
+
+**含义**：各机器人**自身的**基座坐标系，作为 EEF 绝对位姿 $(x, y, z, R)$ 的参考系。
+
+**代表性引用**：
+- L614："EEF 的笛卡尔位置和朝向，表达在**机器人基坐标系 (base frame)** 中"
+- L1259："每个本体的**绝对 EEF state** 仍表达在**各自 base frame** 中"
+- L1316："**仍是在各自机器人 base frame 下的绝对值**，不是全局 SLAM 世界系"
+
+**要点**：这是 base frame 最核心的用法。论文的 80 维 state 向量中，EEF 位姿部分（3D 位置 + 6D 旋转）就是在这个坐标系下的绝对值。**每个机器人用的是自己的 base frame**，不同机器人的 base frame 之间没有全局配准。
+
+#### 类别 ②：Stage 5 对齐后的规范化基座坐标系
+
+> **出现位置**：§4.1.2a Stage 5 描述（L828, 830, 836）、实践意义段（L877）、§4.4.7 数据清洗回顾（L1376）
+
+**含义**：经过 Stage 5 旋转校正后的基座坐标系，其**轴向约定已统一**——正 $x$ 轴指向机器人正前方。
+
+**代表性引用**：
+- L828："**Stage 5 — Base Frame Alignment（基坐标系对齐）**"
+- L830："确保所有数据集的基坐标系遵循统一的约定：**正 x 轴指向机器人正前方**"
+- L836："经过这一步，不同数据集中 'EEF 在基坐标系前方 0.3m' 的描述具有相同的物理含义"
+
+**与类别 ① 的区别**：类别 ① 是**原始的** per-robot base frame（不同数据集可能 x 轴方向不同）；类别 ② 是经过旋转修正 $\mathbf{R}_{\text{corr}}$ 后的**规范化** base frame。Stage 5 的作用是：
+
+$$
+\mathbf{p}^{\text{aligned}} = \mathbf{R}_{\text{corr}} \cdot \mathbf{p}^{\text{raw}}, \quad \mathbf{R}^{\text{aligned}} = \mathbf{R}_{\text{corr}} \cdot \mathbf{R}^{\text{raw}}
+$$
+
+经过 Stage 5 后，类别 ① 中的 base frame **事实上已经是** 类别 ② 的规范化版本。也就是说，论文中提到 "state 在各自 base frame 下" 时，这些 base frame 虽然原点不同，但**轴向约定已经统一**。
+
+#### 类别 ③：跨体态冲突的说明场景
+
+> **出现位置**：§4.2.1（L921, 923, 925）、§4.4 概览（L1092）、§5 对比表（L1992, 2001）
+
+**含义**：用来说明**为什么 base frame 不适合作为跨体态的动作表示坐标系**。不同机器人的 base frame 方向不同，导致视觉上相同的动作（如"向前推杯子"）在各自 base frame 中的数值表示截然不同。
+
+**代表性引用**：
+- L921："§4.2.1 问题描述：为什么基坐标系动作会产生冲突？"
+- L923："不同机器人的底座位置和方向各不相同，即使执行视觉上完全相同的动作...在各自基坐标系中的数值表示也可能截然不同"
+
+**语境**：这类用法的目的是**论证相机坐标系优于基座坐标系**，是 §4.2 camera-frame delta 设计的动机部分。
+
+#### 类别 ④：Stage 4 中的错误来源
+
+> **出现位置**：§4.4.7 数据清洗（L1248）
+
+**含义**："基座坐标系假设错误"作为 FK 不一致的五类原因之一。
+
+**代表性引用**：
+- L1248："识别并**修正**五类不一致：关节角符号约定、EEF/TCP 定义、旋转表示、**基座坐标系假设错误**、EEF 日志错误"
+
+**语境**：某些数据集在记录 EEF 位姿时，使用了错误的 base frame 定义（如关节零位偏移、坐标系旋转错误）。Stage 4 通过 FK 计算发现并修正这类错误。
+
+#### 类别 ⑤：对比论述中的否定用法
+
+> **出现位置**：§4.4.7 动作表示讨论（L1267, 1325）
+
+**含义**：论文明确**不选择**的方案——不用 base-frame 绝对位姿作为跨体态统一动作，也不将不同机器人的 base frame 显式配准到同一物理原点。
+
+**代表性引用**：
+- L1267："不用 base-frame 绝对位姿，也不用 world-frame delta，而将 EEF 动作表达在**参考相机坐标系**下"
+- L1325："将机器人 A 的 base frame **显式配准**到机器人 B 的 base frame，落到**同一物理世界原点**"——论文说这**不是**它的做法
+
+---
+
+### D.3 "World Frame" 在本文中的五类用法
+
+与 "base frame" 含义相对统一不同，"world frame"（或"世界坐标系"）在本文中存在**多种不同含义**，且论文对大部分用法持**否定态度**——即论文选择**不依赖** world frame。以下按语义分类：
+
+#### 类别 ①：Stage 4 中肩部→整机坐标系的变换
+
+> **出现位置**：§4.4.7（L1251）
+
+**含义**：将双臂的肩部相对坐标（shoulder-relative）变换到机器人**整体的基座坐标系**。
+
+**代表性引用**：
+- L1251："**双臂肩部相对坐标 → 变换到 world frame**（shoulder-relative → world）"
+
+**关键洞察**：此处的 "world frame" 实际上 **≈ 该机器人的 base frame**（§D.2 类别 ①），而非全局 SLAM 世界系。论文原文（`data.tex` L224–227）的表述是 "bimanual end-effector poses are recorded relative to each shoulder rather than the world frame, we transform them into the world frame"——对于固定底座的双臂机器人，"world frame" 就是 base frame（因为 $\mathbf{T}_{WB} = \mathbf{I}$）。这是本文中**最容易引起混淆的用法**。
+
+#### 类别 ②：CaPE 中代数消去的全局原点
+
+> **出现位置**：§4.3 CaPE 描述（L965）、§4.4.7 对照表（L1279）
+
+**含义**：CaPE（Camera Positional Encoding）使用相机外参将各 token 嵌入到全局坐标系中，但由于 CaPE 是**旋转位置编码**，在点积注意力 $\langle \mathbf{q} \cdot \mathbf{R}_i, \mathbf{k} \cdot \mathbf{R}_j \rangle$ 中，全局世界坐标系的**原点会代数消去**，仅留下 token 之间的相对位姿。
+
+**代表性引用**：
+- L965："在点积注意力中**全局世界坐标系原点会代数消去**，留下的仅是每个视觉 token 与查询状态/动作 token 之间的**相对位姿**"
+
+**要点**：这里的 "world frame" 是一个**抽象的全局参考系**。论文论述的核心是**它不重要**——CaPE 的数学性质保证了对 world frame 的选择不敏感。这是一个非常精妙的设计：表面上所有外参都定义在某个 world frame 中，但注意力机制自动将其转化为相对几何关系。
+
+数学上，CaPE 旋转编码的消去性质可表示为：
+
+$$
+\langle \mathbf{R}_W \mathbf{R}_i \mathbf{q}, \mathbf{R}_W \mathbf{R}_j \mathbf{k} \rangle = \langle \mathbf{R}_i \mathbf{q}, \mathbf{R}_j \mathbf{k} \rangle
+$$
+
+其中 $\mathbf{R}_W$ 是任意全局旋转（world frame 的选择），$\mathbf{R}_i, \mathbf{R}_j$ 是各 token 的局部旋转。左侧的 $\mathbf{R}_W$ 在点积中对消，因此结果与 world frame 的选择无关。
+
+#### 类别 ③：论文明确不使用的全局 SLAM 世界系
+
+> **出现位置**：§4.4.7（L1238, 1316, 1326, 1327, 1329）
+
+**含义**：由 SLAM 系统或标定板定义的**统一物理世界坐标系**——所有机器人、所有相机都配准到同一个全局原点和朝向。
+
+**代表性引用**：
+- L1238："Qwen-RobotManip 是否把...EEF，全部变换到同一个物理世界坐标系（单一原点、单一朝向）下？"
+- L1316："**仍是在各自机器人 base frame 下的绝对值**，不是全局 SLAM 世界系"
+- L1326-1327："把所有多相机画面**重投影到统一 world frame** 后再写 EEF"、"跨数据集共享一套**global SLAM / 标定板世界系**"——这两条是论文**没有做**的事情
+
+**要点**：这是 "world frame" 最直觉的理解，也是论文**明确否定**的方案。论文指出跨本体"可比性"不来自全局世界系配准，而来自"统一约定 + 相机作为共享参考系"的组合。
+
+#### 类别 ④：action 中被否定的 world-frame delta
+
+> **出现位置**：§4.4.7（L1263, 1267）
+
+**含义**：将 EEF 动作表达为**世界坐标系中的 delta**（即 $\Delta \mathbf{T}^{\text{world}}$），这是 camera-frame delta 之外的另一种备选方案。
+
+**代表性引用**：
+- L1263："论文**不追求**把所有轨迹表达在同一个 world frame 里"
+- L1267："不用 base-frame 绝对位姿，也不用 world-frame delta，而将 EEF 动作表达在**参考相机坐标系**下"
+
+**要点**：world-frame delta 的问题与 base-frame 动作类似——不同场景的 world frame 不同，导致同一视觉动作的数值表示不一致。Camera-frame delta 通过将运动锚定在视觉观测的坐标系中，彻底规避了这一问题。
+
+#### 类别 ⑤：附录 A 中的通用机器人学/计算机视觉概念
+
+> **出现位置**：附录 A（L2202, 2223, 2224, 2246, 2420, 2423, 2426）
+
+**含义**：标准教科书中的世界坐标系——相机外参 $[\mathbf{R} \mid \mathbf{t}]$ 定义中的全局参考系，用于描述相机在三维空间中的位姿。
+
+**代表性引用**：
+- L2202："世界坐标系 (World) ──外参──> 相机坐标系 (Camera) ──内参──> 像素坐标 (Pixel)"
+
+**语境**：这是纯科普内容，解释相机内参/外参的基础知识，与论文的具体设计决策无直接关联。此处的 "世界坐标系" 是计算机视觉的通用术语，不涉及论文中 base frame vs world frame 的设计取舍。
+
+---
+
+### D.4 一张表总结：所有坐标系在论文中的角色
+
+| 坐标系 | 论文是否采用 | 用在哪里 | 代表章节 |
+|--------|:----------:|----------|----------|
+| **Base Frame（原始）** | ✅ State 侧 | EEF 绝对位姿的参考系 | §4.1, §4.4.7 |
+| **Base Frame（Stage 5 规范化）** | ✅ 数据工程 | 统一 x 轴 = 前向的约定 | §4.1.2a Stage 5 |
+| **Base Frame（动作表示）** | ❌ 被否定 | 跨体态动作冲突的反面教材 | §4.2.1 |
+| **World Frame（≈ Base）** | ✅ 数据修正 | Stage 4 肩部→整机变换 | §4.4.7 |
+| **World Frame（CaPE 消去）** | ⚪ 自动消去 | CaPE 旋转编码的数学性质 | §4.3 |
+| **World Frame（全局 SLAM）** | ❌ 明确否定 | 论文不使用全局世界系 | §4.4.7 |
+| **World Frame（delta 动作）** | ❌ 被否定 | 论文选择 camera-frame delta | §4.4.7 |
+| **Camera Frame** | ✅ Action 侧 | EEF delta 动作的参考系 | §4.2, §4.4 |
+
+> 图例：✅ = 论文采用；❌ = 论文明确不采用；⚪ = 出现但自动消去（设计使然）
+
+---
+
+### D.5 为什么论文选择 Camera Frame 而非 Base/World Frame
+
+本节不重复 §4.2 和 §4.4 的详细推导，仅从"相关知识"角度做一个框架级的梳理。
+
+论文面临的核心问题是：**如何让不同机器人、不同场景采集的操作轨迹具有跨体态可比性？**
+
+三种候选方案的对比：
+
+```
+方案 A: Base-Frame 动作
+─────────────────────
+  优点：直接可用，无需额外标定
+  缺点：不同机器人 base frame 方向不同 → 同一视觉动作数值不同
+        → 模型需要学习"这个机器人的前方是哪个方向"
+        → 跨体态迁移几乎不可能
+
+方案 B: World-Frame 动作
+─────────────────────
+  优点：理论上统一
+  缺点：需要全局 SLAM / 标定 → 跨数据集不可行
+        → 不同数据集的 world frame 不同
+        → 本质上和方案 A 一样的问题（只是换了一个名字）
+
+方案 C: Camera-Frame Delta（论文选择）
+─────────────────────
+  优点：视觉-动作天然对齐（相机看到什么运动，就预测什么 delta）
+        CaPE 自动消去 world frame 依赖
+        跨体态、跨场景天然可迁移
+  缺点：需要相机外参（如果外参缺失则退化为 base-frame）
+```
+
+论文的设计哲学可以概括为：
+
+$$
+\boxed{\text{State} \xrightarrow{\text{base frame (规范化)}} \text{本体感知} \quad \big\| \quad \text{Action} \xrightarrow{\text{camera frame (delta)}} \text{跨体态控制}}
+$$
+
+- **State 用 base frame**：因为 state 是模型的**输入**，需要绝对值来支撑 FK 一致性验证和本体感知；通过 Stage 5 统一轴向约定后，不同机器人的 base frame 在**语义上可比**。
+- **Action 用 camera frame**：因为 action 是模型的**输出**，需要跨体态可迁移性；camera-frame delta 将运动锚定在视觉观测中，**绕过了** base frame / world frame 的差异问题。
+
+这一 "state 绝对 + action 相对" 的分离设计，是 Qwen-RobotManip 跨体态泛化能力的几何基础。
+
+---
+
+### D.6 延伸阅读
+
+如需深入了解本附录涉及的各主题，可参考本文档的以下章节：
+
+| 主题 | 参考章节 |
+|------|----------|
+| Base frame 下的 EEF 绝对坐标详解 | §4.1.2a（第 (一)、(二) 节） |
+| Base-frame 动作冲突的具体例子 | §4.2.1 |
+| Camera-frame delta 的数学公式 | §4.2.2、§4.4.3 |
+| CaPE 如何消去 world frame 依赖 | §4.3 |
+| Stage 4 FK 一致性与 Stage 5 base frame 对齐 | §4.1.2a（第 (五) 节）、§4.4.7 |
+| "是否统一到共同坐标系"的深入辨析 | §4.4.7 |
+| 相机内参与外参的科普 | 附录 A |
