@@ -1,0 +1,246 @@
+\begin{thebibliography}{10}
+
+\bibitem{cosmos3}
+Niket Agarwal, Arslan Ali, Jon Allen, Martin Antolini, Adeline Aubame, Alisson Azzolini, Junjie Bai, Maciej Bala, Yogesh Balaji, Josh Bapst, et~al.
+\newblock Cosmos 3: Omnimodal world models for physical ai.
+\newblock {\em arXiv preprint arXiv:2606.02800}, 2026.
+
+\bibitem{vjepa2}
+Mahmoud Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, Mojtaba Komeili, Matthew Muckley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem Zholus, Sergio Arnaud, Abha Gejji, Ada Martin, Francois Robert~Hogan, Daniel Dugas, Piotr Bojanowski, Vasil Khalidov, Patrick Labatut, Francisco Massa, Marc Szafraniec, Kapil Krishnakumar, Yong Li, Xiaodong Ma, Sarath Chandar, Franziska Meier, Yann LeCun, Michael Rabbat, and Nicolas Ballas.
+\newblock V-jepa~2: Self-supervised video models enable understanding, prediction and planning.
+\newblock {\em arXiv preprint arXiv:2506.09985}, 2025.
+
+\bibitem{hex}
+Shuanghao Bai, Meng Li, Xinyuan Lv, Jiawei Wang, Xinhua Wang, Fei Liao, Chengkai Hou, Langzhe Gu, Wanqi Zhou, Kun Wu, Ziluo Ding, Zhiyuan Xu, Lei Sun, Shanghang Zhang, Zhengping Che, Jian Tang, and Badong Chen.
+\newblock {HEX}: Humanoid-aligned experts for cross-embodiment whole-body manipulation.
+\newblock {\em arXiv preprint arXiv:2604.07993}, 2026.
+
+\bibitem{gr00tN1}
+Johan Bjorck, Fernando Casta{\~n}eda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan, Yu~Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et~al.
+\newblock {GR00T N1}: {A}n open foundation model for generalist humanoid robots.
+\newblock {\em arXiv preprint arXiv:2503.14734}, 2025.
+
+\bibitem{pi_0d5}
+Kevin Black, Noah Brown, James Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail, Michael~Robert Equi, Chelsea Finn, Niccolo Fusai, Manuel~Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, brian ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen~Z. Ren, Lucy~Xiaoyang Shi, Laura Smith, Jost~Tobias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky.
+\newblock $\pi_{0.5}$: A vision-language-action model with open-world generalization.
+\newblock In {\em Conference on Robot Learning}, 2025.
+
+\bibitem{pi_0}
+Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Lucy~Xiaoyang Shi, James Tanner, Quan Vuong, Anna Walling, Haohuan Wang, and Ury Zhilinsky.
+\newblock $\pi_{0}$: A vision-language-action flow model for general robot control.
+\newblock In {\em Proceedings of Robotics: Science and Systems}, 2025.
+
+\bibitem{cai2026xiaomi}
+Rui Cai, Jun Guo, Xinze He, Piaopiao Jin, Jie Li, Bingxuan Lin, Futeng Liu, Wei Liu, Fei Ma, Kun Ma, Feng Qiu, Heng Qu, Yifei Su, Qiao Sun, Dong Wang, Donghao Wang, Yunhong Wang, Rujie Wu, Diyun Xiang, Yu~Yang, Hangjun Ye, Yuan Zhang, and Quanyun Zhou.
+\newblock Xiaomi-robotics-0: An open-sourced vision-language-action model with real-time execution.
+\newblock {\em arXiv preprint arXiv:2602.12684}, 2026.
+
+\bibitem{gr3}
+Chilam Cheang, Sijin Chen, Zhongren Cui, Yingdong Hu, Liqun Huang, Tao Kong, Hang Li, Yifeng Li, Yuxiao Liu, Xiao Ma, et~al.
+\newblock {GR-3} technical report.
+\newblock {\em arXiv preprint arXiv:2507.15493}, 2025.
+
+\bibitem{lawam}
+Jialei Chen, Kai Wang, Kang Chen, Shuaihang Chen, Feng Gao, Wenhao Tang, Zhiyuan Li, Weilin Liu, Zhuyu Yao, Boxun Li, et~al.
+\newblock Lawam: Latent world action models for efficient dynamics-aware robot policies.
+\newblock {\em arXiv preprint arXiv:2606.15768}, 2026.
+
+\bibitem{abotm05}
+Ronghan Chen, Yandan Yang, Zuojin Tang, Dongjie Huo, Tong Lin, Haoning Wu, Haoyun Liu, Yuzhi Chen, Lulu Zheng, Botai Yuan, Tianlun Li, Mingxin Wang, Dekang Qi, Bin Hu, Wei Mei, Yuze Xuan, Haolong Yang, Yanqing Zhu, Mu~Xu, Zhiheng Ma, and Xinyuan Chang.
+\newblock Abot-m0.5: Unified mobility-and-manipulation world action model.
+\newblock {\em arXiv preprint arXiv:2607.00678}, 2026.
+
+\bibitem{dexWorldModel}
+{DexForce AI Team of Physical AI}.
+\newblock Dexworldmodel: Causal latent world modeling towards automated learning of embodied tasks, 2026.
+\newblock Technical report.
+
+\bibitem{himoevla}
+Zhiying Du, Bei Liu, Yaobo Liang, Yichao Shen, Haidong Cao, Xiangyu Zheng, Zhiyuan Feng, Zuxuan Wu, Jiaolong Yang, and Yu-Gang Jiang.
+\newblock {HiMoE-VLA}: Hierarchical mixture-of-experts for generalist vision-language-action policies.
+\newblock {\em arXiv preprint arXiv:2512.05693}, 2025.
+
+\bibitem{g0_5}
+{Galaxea Team}.
+\newblock Galaxea g0.5 technical report, 2026.
+\newblock Technical report.
+
+\bibitem{galaxeaG0}
+Tao Jiang, Tianyuan Yuan, Yicheng Liu, Chenhao Lu, Jianning Cui, Xiao Liu, Shuiqi Cheng, Jiyang Gao, Huazhe Xu, and Hang Zhao.
+\newblock Galaxea open-world dataset and {G}0 dual-system vla model.
+\newblock {\em arXiv preprint arXiv:2509.00576}, 2025.
+
+\bibitem{rldx1}
+Dongyoung Kim, Huiwon Jang, Myungkyu Koo, Suhyeok Jang, Taeyoung Kim, Beomjun Kim, Byungjun Yoon, Changsung Jang, Daewon Choi, Dongsu Han, Donguk Lee, Heeseung Kwon, Hojin Jeon, Jaehyun Kang, Jaekyoung Bae, Jihyuk Lee, Jimin Lee, John Won, Joonwoo Ahn, Junhyeong Park, Junyoung Sung, Kyungmin Lee, Minseong Han, Minsung Yoon, Sejune Joo, Seonil Son, Seungcheol Park, Seunggeun Cho, Seungjun Moon, Seungku Kim, Yonghoon Dong, Yongjin Cho, Youngchan Kim, et~al.
+\newblock {RLDX}-1 technical report.
+\newblock {\em arXiv preprint arXiv:2605.03269}, 2026.
+
+\bibitem{openvla}
+Moo~Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan~P Foster, Pannag~R Sanketi, Quan Vuong, et~al.
+\newblock {OpenVLA}: An open-source vision-language-action model.
+\newblock In {\em Conference on Robot Learning}, 2025.
+
+\bibitem{forcevla2}
+Yang Li, Zhaxizhuoma, Hongru Jiang, Junjie Xia, Hongquan Zhang, Jinda Du, Yunsong Zhou, Jia Zeng, Ce~Hao, Jieji Ren, Qiaojun Yu, Cewu Lu, Yu~Qiao, and Jiangmiao Pang.
+\newblock {ForceVLA2}: Unleashing hybrid force-position control with force awareness for contact-rich manipulation.
+\newblock {\em arXiv preprint arXiv:2603.15169}, 2026.
+
+\bibitem{holoBrain0}
+Xuewu Lin, Tianwei Lin, Yun Du, Hongyu Xie, Yiwei Jin, Jiawei Li, Shijie Wu, Qingze Wang, Mengdi Li, Mengao Zhao, Ziang Li, Chaodong Huang, Hongzhe Bi, Lichao Huang, and Zhizhong Su.
+\newblock Holobrain-0 technical report.
+\newblock {\em arXiv preprint arXiv:2602.12062}, 2026.
+
+\bibitem{liu2024deepseek}
+Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et~al.
+\newblock Deepseek-v3 technical report.
+\newblock {\em arXiv preprint arXiv:2412.19437}, 2024.
+
+\bibitem{beingH0}
+Hao Luo, Yicheng Feng, Wanpeng Zhang, Sipeng Zheng, Ye~Wang, Haoqi Yuan, Jiazheng Liu, Chaoyi Xu, Qin Jin, and Zongqing Lu.
+\newblock Being-h0: Vision-language-action pretraining from large-scale human videos.
+\newblock {\em arXiv preprint arXiv:2507.15597}, 2025.
+
+\bibitem{beingH05}
+Hao Luo, Ye~Wang, Wanpeng Zhang, Sipeng Zheng, Ziheng Xi, Chaoyi Xu, Haiweng Xu, Haoqi Yuan, Chi Zhang, Yiqing Wang, Yicheng Feng, and Zongqing Lu.
+\newblock Being-h0.5: Scaling human-centric robot learning for cross-embodiment generalization.
+\newblock {\em arXiv preprint arXiv:2601.12993}, 2026.
+
+\bibitem{beingH07}
+Hao Luo, Wanpeng Zhang, Yicheng Feng, Sipeng Zheng, Haiweng Xu, Chaoyi Xu, Ziheng Xi, Yuhui Fu, and Zongqing Lu.
+\newblock Being-h0.7: A latent world-action model from egocentric videos.
+\newblock {\em arXiv preprint arXiv:2605.00078}, 2026.
+
+\bibitem{lda1b}
+Jiangran Lyu, Kai Liu, Xuheng Zhang, Haoran Liao, Yusen Feng, Wenxuan Zhu, Tingrui Shen, Jiayi Chen, Jiazhao Zhang, Yifei Dong, Wenbo Cui, Senmao Qi, Shuo Wang, Yixin Zheng, Mi~Yan, Xuesong Shi, Haoran Li, Dongbin Zhao, Ming-Yu Liu, Zhizheng Zhang, Li~Yi, Yizhou Wang, and He~Wang.
+\newblock {LDA}-1b: Scaling latent dynamics action model via universal embodied data ingestion.
+\newblock {\em arXiv preprint arXiv:2602.12215}, 2026.
+
+\bibitem{larybench}
+Dujun Nie, Fengjiao Chen, Qi~Lv, Jun Kuang, Xiaoyu Li, Xuezhi Cao, and Xunliang Cai.
+\newblock Lary: A latent action representation yielding benchmark for generalizable vision-to-action alignment.
+\newblock {\em arXiv preprint arXiv:2604.11689}, 2026.
+
+\bibitem{qwen3.6-27b}
+{Qwen Team}.
+\newblock {Qwen3.6-27B}: Flagship-level coding in a {27B} dense model, April 2026.
+
+\bibitem{dinov3}
+Oriane Sim{\'e}oni, Huy~V. Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Micha{\"e}l Ramamonjisoa, Francisco Massa, Daniel Haziza, Luca Wehrstedt, Jianyuan Wang, Timoth{\'e}e Darcet, Th{\'e}o Moutakanni, Leonel Sentana, Claire Roberts, Andrea Vedaldi, Jamie Tolan, John Brandt, Camille Couprie, Julien Mairal, Herv{\'e} J{\'e}gou, Patrick Labatut, and Piotr Bojanowski.
+\newblock {DINOv3}, 2025.
+
+\bibitem{wog}
+Yue Su, Sijin Chen, Haixin Shi, Mingyu Liu, Zhengshen Zhang, Ningyuan Huang, Weiheng Zhong, Zhengbang Zhu, Yuxiao Liu, and Xihui Liu.
+\newblock World guidance: World modeling in condition space for action generation.
+\newblock In {\em ICML}, 2026.
+
+\bibitem{lingbotdepth}
+Bin Tan, Changjian Sun, Xiage Qin, Hanat Adai, Zelin Fu, Tianxiang Zhou, Han Zhang, Yinghao Xu, Xing Zhu, Yujun~Shen Shen, and Nan Xue.
+\newblock Masked depth modeling for spatial perception.
+\newblock \url{https://technology.robbyant.com/lingbot-depth}, 2026.
+
+\bibitem{modevla}
+Tutian Tang, Xingyu Ji, Wanli Xing, Ce~Hao, Wenqiang Xu, Lin Shao, Cewu Lu, Qiaojun Yu, Jiangmiao Pang, and Kaifeng Zhang.
+\newblock Towards human-like manipulation through {RL}-augmented teleoperation and mixture-of-dexterous-experts {VLA}.
+\newblock {\em arXiv preprint arXiv:2603.08122}, 2026.
+
+\bibitem{gemini_robotics}
+Gemini~Robotics Team, Saminda Abeyruwan, Joshua Ainslie, Jean-Baptiste Alayrac, Montserrat~Gonzalez Arenas, Travis Armstrong, Ashwin Balakrishna, Robert Baruch, Maria Bauza, Michiel Blokzijl, et~al.
+\newblock Gemini {R}obotics: Bringing {AI} into the physical world.
+\newblock {\em arXiv preprint arXiv:2503.20020}, 2025.
+
+\bibitem{generalist2026gen1}
+Generalist Team.
+\newblock Gen-1: Scaling embodied foundation models to mastery.
+\newblock {\em Generalist AI Blog}, 2026.
+\newblock https://generalistai.com/blog/gen-1.
+
+\bibitem{gr00t_n1_6}
+NVIDIA~GEAR Team.
+\newblock {GR00T N1.6}: An improved open foundation model for generalist humanoid robots.
+\newblock \url{https://research.nvidia.com/labs/gear/gr00t-n1_6/}, 2025.
+
+\bibitem{qwenrobotmanip}
+Qwen Team.
+\newblock Qwen-robotmanip technical report: Alignment unlocks scale for robotic manipulation foundation models.
+\newblock 2026.
+
+\bibitem{qwenVLA}
+Qiuyue Wang, Mingsheng Li, Jian Guan, Jinhui Ye, Sicheng Xie, Yitao Liu, Junhao Chen, Zhixuan Liang, Jie Zhang, Xintong Hu, Xuhong Huang, Pei Lin, Junyang Lin, Dayiheng Liu, Shuai Bai, Jingren Zhou, Jiazhao Zhang, Haoqi Yuan, Gengze Zhou, Hang Yin, Ye~Wang, Yiyang Huang, Zixing Lei, Wujian Peng, Delin Chen, et~al.
+\newblock {Qwen}-{VLA}: Unifying vision-language-action modeling across tasks, environments, and robot embodiments.
+\newblock {\em arXiv preprint arXiv:2605.30280}, 2026.
+
+\bibitem{wang2025vision}
+Yunnan Wang, Fan Lu, Kecheng Zheng, Ziyuan Huang, Ziqiang Li, Wenjun Zeng, and Xin Jin.
+\newblock Vision-centric activation and coordination for multimodal large language models.
+\newblock {\em arXiv preprint arXiv:2510.14349}, 2025.
+
+\bibitem{gm100}
+Ziyu Wang, Chenyuan Liu, Yushun Xiang, Runhao Zhang, Qingbo Hao, Hongliang Lu, Houyu Chen, Zhizhong Feng, Kaiyue Zheng, Dehao Ye, Xianchao Zeng, Xinyu Zhou, Boran Wen, Jiaxin Li, Mingyu Zhang, Kecheng Zheng, Qian Zhu, Ran Cheng, and Yong-Lu Li.
+\newblock {The Great March 100}: 100 detail-oriented tasks for evaluating embodied ai agents, 2026.
+
+\bibitem{videorope}
+Xilin Wei, Xiaoran Liu, Yuhang Zang, Xiaoyi Dong, Pan Zhang, Yuhang Cao, Jian Tong, Haodong Duan, Qipeng Guo, Jiaqi Wang, et~al.
+\newblock Videorope: What makes for good video rotary position embedding?
+\newblock In {\em Int. Conf. Mach. Learn.}, 2025.
+
+\bibitem{lingbotvla}
+Wei Wu, Fan Lu, Yunnan Wang, Shuai Yang, Shi Liu, Fangjing Wang, Shuailei Ma, He~Sun, Yong Wang, Zhenqi Qiu, Houlong Xiong, Ziyu Wang, Shuai Zhou, Yiyu Ren, Kejia Zhang, Hui Yu, Jingmei Zhao, Qian Zhu, Ran Cheng, Yong-Lu Li, Yongtao Huang, Xing Zhu, Yujun Shen, and Kecheng Zheng.
+\newblock A pragmatic vla foundation model.
+\newblock {\em arXiv preprint arXiv:2601.18692v1}, 2026.
+
+\bibitem{hyembodied05x}
+Tencent~Robotics X and HY~Vision Team.
+\newblock Hy-embodied-0.5-x: An enhanced embodied foundation model for real-world agents.
+\newblock 2026.
+
+\bibitem{omnistream}
+Yibin Yan, Jilan Xu, Shangzhe Di, Haoning Wu, and Weidi Xie.
+\newblock Omnistream: Mastering perception, reconstruction and action in continuous streams.
+\newblock {\em arXiv preprint arXiv:2603.12265}, 2026.
+
+\bibitem{magma}
+Jianwei Yang, Reuben Tan, Qianhui Wu, Ruijie Zheng, Baolin Peng, Yongyuan Liang, Yu~Gu, Mu~Cai, Seonghyeon Ye, Joel Jang, et~al.
+\newblock Magma: A foundation model for multimodal {AI} agents.
+\newblock In {\em IEEE Conf. Comput. Vis. Pattern Recog.}, pages 14203--14214, 2025.
+
+\bibitem{abotm0}
+Yandan Yang, Shuang Zeng, Tong Lin, Xinyuan Chang, Dekang Qi, Junjin Xiao, Haoyun Liu, Ronghan Chen, Yuzhi Chen, Dongjie Huo, et~al.
+\newblock Abot-m0: Vla foundation model for robotic manipulation with action manifold learning.
+\newblock {\em arXiv preprint arXiv:2602.11236}, 2026.
+
+\bibitem{starVLAalpha}
+Jinhui Ye, Ning Gao, Senqiao Yang, Jinliang Zheng, Zixuan Wang, Yuxin Chen, Pengguang Chen, Yilun Chen, Shu Liu, and Jiaya Jia.
+\newblock Starvla-$\\alpha$: Reducing complexity in vision-language-action systems.
+\newblock {\em arXiv preprint arXiv:2604.11757}, 2026.
+
+\bibitem{samoevla}
+Zihan You, Hongwei Liu, Chenxu Dang, Zhe Wang, Sining Ang, Aoqi Wang, and Yan Wang.
+\newblock {SAMoE-VLA}: A scene adaptive mixture-of-experts vision-language-action model for autonomous driving.
+\newblock {\em arXiv preprint arXiv:2603.08113}, 2026.
+
+\bibitem{forcevla}
+Jiawen Yu, Hairuo Liu, Qiaojun Yu, Jieji Ren, Ce~Hao, Haitong Ding, Guangyu Huang, Guofan Huang, Yan Song, Panpan Cai, Cewu Lu, and Wenqiang Zhang.
+\newblock {ForceVLA}: Enhancing {VLA} models with a force-aware {MoE} for contact-rich manipulation.
+\newblock {\em arXiv preprint arXiv:2505.22159}, 2025.
+
+\bibitem{wallOSS05}
+Ryan Yu, Pushi Zhang, Starrick Liu, Brae Liu, Miracle Kang, Shalfun Li, Lights Shi, Ellie Ma, Ping Yang, Chris Pan, Jerry Chen, Dongxiu Liu, Rain Sun, Miles Guo, Byron Zhang, Hugo Zhou, Zach Xu, Vincent Chen, Harrison Huang, James Wang, Dance Kuzi, Andy Zhai, Hang Su, Roy Gan, Lucy Liang, Hao Wang, and Qian Wang.
+\newblock Wall-oss-0.5 technical report.
+\newblock {\em arXiv preprint arXiv:2605.30877}, 2026.
+
+\bibitem{walloss}
+Andy Zhai, Brae Liu, Bruno Fang, Chalse Cai, Ellie Ma, Ethan Yin, Hao Wang, Hugo Zhou, James Wang, Lights Shi, et~al.
+\newblock Igniting {VLMs} toward the embodied space.
+\newblock {\em arXiv preprint arXiv:2509.11766}, 2025.
+
+\bibitem{atomicvla}
+Likui Zhang, Tao Tang, Zhihao Zhan, Xiuwei Chen, Zisheng Chen, Jianhua Han, Jiangtong Zhu, Pei Xu, Hang Xu, Hefeng Wu, Liang Lin, and Xiaodan Liang.
+\newblock {AtomicVLA}: Unlocking the potential of atomic skill learning in robots.
+\newblock {\em arXiv preprint arXiv:2603.07648}, 2026.
+
+\bibitem{gem}
+Ruowen Zhao, Bangguo Li, Zuyan Liu, Yinan Liang, Junliang Ye, Fangfu Liu, Diankun Wu, Zhengyi Wang, Xumin Yu, Yongming Rao, Han Hu, and Jun Zhu.
+\newblock {GEM}: Generative supervision helps embodied intelligence.
+\newblock {\em arXiv preprint arXiv:2605.28548}, 2026.
+
+\end{thebibliography}

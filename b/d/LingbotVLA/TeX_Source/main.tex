@@ -1,0 +1,84 @@
+\documentclass[onecolumn]{robbyant}           %
+
+\usepackage{longtable} 
+\usepackage{makecell}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[table]{xcolor}
+\usepackage{tabularx}
+
+\newcommand\nonumfootnote[1]{%
+\begingroup%
+    \renewcommand\thefootnote{}\footnote{\hspace{-4pt}#1}%
+    \addtocounter{footnote}{-1}%
+\endgroup%
+}
+
+
+\metadata[Website]{\url{https://technology.robbyant.com/lingbot-vla-v2}}
+\metadata[Github]{\url{https://github.com/robbyant/lingbot-vla-v2}}
+\metadata[Checkpoints]{\url{https://huggingface.co/collections/robbyant/lingbot-vla-v2}}
+\newcommand{\methodname}{LingBot-VLA}
+\newcommand{\methodold}{\texttt{\methodname}\xspace}
+\newcommand{\method}{\texttt{\methodname~2.0}\xspace}
+\newcommand{\robotnum}{{20}\xspace}
+\newcommand{\dinomodel}{DINO-Video\xspace}
+\newcommand{\yibin}[1]{{\textcolor{teal}{[yibin: #1]}}}
+
+
+\title{From Foundation to Application: \\[4pt] Improving VLA Models in Practice}
+
+
+\author{
+\begin{center}
+    Wei Wu$^{*}$,
+    Fangjing Wang$^{*}$,
+    Fan Lu,
+    He Sun,
+    Shi Liu,
+    Yunnan Wang,
+    Yibin Yan,
+    Yong Wang,
+    \\[2pt]
+    Shuailei Ma,
+    Xinyang Wang,
+    Yibin Liu,
+    Shuai Yang,
+    Tianxiang Zhou,
+    Kejia Zhang,
+    Lei Zhou,
+    Cheng Su,
+    \\[2pt] 
+    Nan Xue,
+    Bin Tan,
+    Han Zhang,
+    Youchao Zhang,
+    Fei Liao,
+    Xing Zhu,
+    Yujun Shen,
+    Kecheng Zheng$^{\dagger}$
+    \\[12pt]
+    {$^{*}$Equal Contribution} \qquad
+    $^{\dagger}$Project Lead
+\end{center}
+}
+
+
+\begin{document}
+
+\vspace{-30pt}
+\input{sections/0_abstract.tex}
+
+
+\maketitle
+
+\justifying
+\input{sections/1_introduction.tex}
+\input{sections/2_related_work.tex}
+\input{sections/3_method.tex}
+\input{sections/4_experiments.tex}
+\input{sections/5_conclusion.tex}
+\input{sections/6_reference.tex}
+
+
+\end{document}
