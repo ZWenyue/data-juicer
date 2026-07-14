@@ -9,6 +9,7 @@ import numpy as np
 from data_juicer._au.ops.filter.robot_state_action_alignment_filter import (
     RobotStateActionAlignmentFilter,
 )
+from data_juicer._au.utils.lerobot_episode_io import load_episode_arrays
 from data_juicer.core.data import NestedDataset as Dataset
 from data_juicer.utils.constant import Fields
 from data_juicer.utils.unittest_utils import DataJuicerTestCaseBase
@@ -26,20 +27,20 @@ def _col(vec):
 
 
 def _load_episode_parquet(episode_idx: int):
-    """Load a single episode parquet and return (states, actions) as list-of-list."""
-    import pyarrow.parquet as pq
+    """Load a single episode parquet and return (states, actions) as list-of-list.
 
+    Uses the shared loader (handles both unified ``observation.state``/``action``
+    columns and Galaxea decomposed per-arm columns) instead of hardcoding a
+    column name, since real datasets may use either schema.
+    """
     pf = os.path.join(
         REAL_DATASET_DIR,
         "data",
         "chunk-000",
         f"episode_{episode_idx:06d}.parquet",
     )
-    table = pq.read_table(pf)
-    df = table.to_pandas()
-    states = df["observation.state"].tolist()
-    actions = df["action"].tolist()
-    return states, actions
+    states, actions = load_episode_arrays(pf)
+    return states.tolist(), actions.tolist()
 
 
 # Shared config for synthetic single-dim scenarios.
@@ -252,11 +253,12 @@ class RobotStateActionAlignmentFilterTest(DataJuicerTestCaseBase):
         for pf in parquet_files:
             df = pq.read_table(pf).to_pandas()
             ep_idx = int(df["episode_index"].iloc[0])
+            states, actions = load_episode_arrays(pf)
             ds_list.append(
                 {
                     "id": f"episode_{ep_idx:06d}",
-                    "states": df["observation.state"].tolist(),
-                    "actions": df["action"].tolist(),
+                    "states": states.tolist(),
+                    "actions": actions.tolist(),
                 }
             )
 
