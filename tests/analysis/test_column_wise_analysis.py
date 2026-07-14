@@ -140,6 +140,22 @@ class ColumnWiseAnalysisTest(DataJuicerTestCaseBase):
         column_wise_analysis_3_sample.analyze()
         self.assertTrue(os.path.exists(os.path.join(self.temp_output_path, 'all-stats.png')))
 
+    def test_bool_stats_hist(self):
+        # Bool keep-flags used to crash matplotlib/numpy histogram:
+        # TypeError: numpy boolean subtract ... is not supported
+        data_list = [
+            {Fields.meta: {}, Fields.stats: {'sudden_change_keep': True, 'stats_num': 1.0}},
+            {Fields.meta: {}, Fields.stats: {'sudden_change_keep': False, 'stats_num': 2.0}},
+            {Fields.meta: {}, Fields.stats: {'sudden_change_keep': True, 'stats_num': 3.0}},
+        ]
+        ds = NestedDataset.from_list(data_list)
+        cwa = ColumnWiseAnalysis(ds, self.temp_output_path, save_stats_in_one_file=False)
+        cwa.analyze()
+        self.assertTrue(os.path.exists(
+            os.path.join(self.temp_output_path, 'sudden_change_keep-hist.png')))
+        self.assertTrue(os.path.exists(
+            os.path.join(self.temp_output_path, 'sudden_change_keep-box.png')))
+
     def test_skip_export(self):
         # test skip_export
         column_wise_analysis_4_sample = ColumnWiseAnalysis(

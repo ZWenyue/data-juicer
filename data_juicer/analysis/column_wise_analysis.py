@@ -14,6 +14,36 @@ fm = LazyLoader("matplotlib.font_manager")
 plt = LazyLoader("matplotlib.pyplot")
 
 
+def _is_bool_like_series(data: pd.Series) -> bool:
+    """True when series is bool dtype or object of Python/NumPy bools."""
+    if data is None or len(data) == 0:
+        return False
+    if pd.api.types.is_bool_dtype(data):
+        return True
+    if data.dtype != object:
+        return False
+    sample = data.dropna().head(32)
+    if len(sample) == 0:
+        return False
+    return all(isinstance(v, bool) for v in sample)
+
+
+def _coerce_plottable_numeric(data: pd.Series) -> pd.Series:
+    """Convert boolean (or bool-like) series so numpy/matplotlib histograms work.
+
+    ``numpy.histogram`` rejects boolean bin edges (``True - False`` is illegal).
+    Filter keep-flags such as ``sudden_change_keep`` hit this path in dj-analyze.
+    """
+    if data is None or len(data) == 0:
+        return data
+    if _is_bool_like_series(data):
+        # map keeps NA; astype on pure bool dtype is faster
+        if pd.api.types.is_bool_dtype(data):
+            return data.astype("int8")
+        return data.map(lambda v: int(v) if isinstance(v, bool) else v)
+    return data
+
+
 def get_row_col(total_num, factor=2):
     """
     Given the total number of stats figures, get the "best" number of rows and
@@ -149,8 +179,9 @@ class ColumnWiseAnalysis:
                 subfig.set_facecolor("0.85")
 
             # numeric or string via nan. Apply different plot method for them.
+            # Bool keep-flags have describe() top=True/False; treat as numeric 0/1.
             sampled_top = self.overall_result[column_name].get("top")
-            if pd.isna(sampled_top):
+            if pd.isna(sampled_top) or _is_bool_like_series(data):
                 # numeric or numeric list -- draw histogram and box plot for
                 # this stat
                 percentiles = self.overall_result[column_name] if show_percentiles else None
@@ -214,9 +245,15 @@ class ColumnWiseAnalysis:
         :param show: whether to show in a single window after drawing
         :return:
         """
+        data = _coerce_plottable_numeric(data)
+
         # recommended number of bins
         data_num = len(data)
-        rec_bins = max(int(math.sqrt(data_num)), 10)
+        # Bool/keep flags only need a few bins; huge bin counts amplify edge issues.
+        if pd.api.types.is_integer_dtype(data) and data.nunique(dropna=True) <= 2:
+            rec_bins = max(int(data.nunique(dropna=True)), 1)
+        else:
+            rec_bins = max(int(math.sqrt(data_num)), 10)
 
         # if ax is None, using plot method in pandas
         if ax is None:
@@ -268,6 +305,8 @@ class ColumnWiseAnalysis:
         :param show: whether to show in a single window after drawing
         :return:
         """
+        data = _coerce_plottable_numeric(data)
+
         # if ax is None, using plot method in pandas
         if ax is None:
             ax = data.plot.box(figsize=(20, 16))

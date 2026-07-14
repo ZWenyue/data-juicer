@@ -1,0 +1,26 @@
+# Acceptance: pack Galaxea episodes into 80-dim unified vectors + occupancy mask.
+project_name: 'accept-robot-unified-state'
+dataset_path: 'tests_au/ops/mapper/outputs/unified_pointer.jsonl'
+export_path: 'tests_au/ops/mapper/outputs/accept_unified_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_lerobot_parquet_loader_mapper:
+      parquet_field: 'parquet_path'
+      state_key: 'states'
+      action_key: 'actions'
+      skip_if_present: true
+  - robot_unified_state_mapper:
+      embodiment: 'galaxea_r1_lite'
+      parquet_field: 'parquet_path'
+      state_key: 'unified_states'
+      action_key: 'unified_actions'
+      mask_key: 'unified_dim_mask'
+      skip_if_present: false
+      write_meta_occupancy: true
