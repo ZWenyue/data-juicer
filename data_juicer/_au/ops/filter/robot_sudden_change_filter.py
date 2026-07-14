@@ -49,6 +49,8 @@ class RobotSuddenChangeFilter(Filter):
         residual_threshold: float = None,
         acc_threshold: float = None,
         jerk_threshold: float = None,
+        active_vel_frac: float = 0.02,
+        min_active_frames_for_threshold: int = 20,
         # ---- 维度选择 ----
         check_dims: dict = None,   # 例：{"include":[0,1,2]} 或 {"exclude":[6,7]}
         exempt_dims: list = None,  # 直接跳过的维度（如夹爪/padding）
@@ -77,6 +79,12 @@ class RobotSuddenChangeFilter(Filter):
         :param threshold_mode: {"mad","manual"}。
         :param mad_scale_*: mad 模式下残差/acc/jerk 的缩放系数 lambda。
         :param *_threshold: manual 模式下的固定阈值。
+        :param active_vel_frac: mad 模式下，某帧相对上一帧的位移超过该维量程
+            （max-min）的这个比例才算「运动中」；只用运动中的帧估计 median/MAD，
+            避免长时间静止段的量化/控制噪声把阈值压塌陷。
+        :param min_active_frames_for_threshold: 某维运动中的帧数少于此值时，
+            退回用全部帧估计阈值（对本身长期静止的维度保持旧行为，避免样本
+            太少导致 MAD 估计不稳定）。
         :param check_dims: {"include":[...]} 与/或 {"exclude":[...]}，控制参与检测的维度。
         :param exempt_dims: 一律跳过的维度索引（离散通道，如夹爪开合、padding）。
         :param angular_dims: 需先做 np.unwrap 的角度维索引（避免 pi/-pi 跳变误判）。
@@ -120,6 +128,8 @@ class RobotSuddenChangeFilter(Filter):
         self.residual_threshold = residual_threshold
         self.acc_threshold = acc_threshold
         self.jerk_threshold = jerk_threshold
+        self.active_vel_frac = float(active_vel_frac)
+        self.min_active_frames_for_threshold = int(min_active_frames_for_threshold)
 
         self.check_dims = check_dims
         self.exempt_dims = set(exempt_dims) if exempt_dims else set()
@@ -192,13 +202,48 @@ class RobotSuddenChangeFilter(Filter):
             jerk[1 : T - 2] = x[3:] - 3.0 * x[2:-1] + 3.0 * x[1:-2] - x[:-3]
         return acc, jerk
 
-    def _dim_threshold(self, values: np.ndarray, scale: float, manual):
-        """逐维阈值：manual 返回常数向量；mad 返回 median + scale*1.4826*MAD。"""
+    def _active_mask(self, xs: np.ndarray) -> np.ndarray:
+        """逐维「运动中」掩码 (T, D)。
+
+        True 表示该帧相对上一帧的位移超过该维量程（max-min）的 active_vel_frac
+        比例。长时间静止段（遥操作保持不动）的位移是传感器/控制量化噪声，把它
+        们纳入 median/MAD 估计会把阈值压塌陷；只用运动段的残差/加速度/jerk 分布
+        定阈值，才反映「运动中的真实噪声水平」。量程为 0（该维整段恒定）时该维
+        全部为 False，由 _dim_threshold 的 fallback 统一退回全帧估计。
+        """
+        T, D = xs.shape
+        vel = np.zeros((T, D), dtype=float)
+        if T >= 2:
+            vel[1:] = np.abs(np.diff(xs, axis=0))
+            vel[0] = vel[1]
+        rng = np.nanmax(xs, axis=0) - np.nanmin(xs, axis=0)
+        eps = self.active_vel_frac * rng
+        return vel > eps[None, :]
+
+    def _dim_threshold(self, values: np.ndarray, scale: float, manual, active_mask: np.ndarray = None):
+        """逐维阈值：manual 返回常数向量；mad 返回 median + scale*1.4826*MAD。
+
+        给定 active_mask 时，逐维只用「运动中」的帧估计 median/MAD；若某维运动
+        中的帧数不足 min_active_frames_for_threshold，退回用全部帧估计（对本身
+        长期静止的维度保持旧行为）。
+        """
         D = values.shape[1]
         if self.threshold_mode == "manual":
             return np.full(D, float(manual))
-        med = np.nanmedian(values, axis=0)
-        mad = np.nanmedian(np.abs(values - med), axis=0)
+        if active_mask is None:
+            med = np.nanmedian(values, axis=0)
+            mad = np.nanmedian(np.abs(values - med), axis=0)
+            return med + scale * 1.4826 * np.clip(mad, 1e-8, None)
+
+        med = np.zeros(D, dtype=float)
+        mad = np.zeros(D, dtype=float)
+        for d in range(D):
+            col = values[:, d]
+            act = active_mask[:, d]
+            sub = col[act] if int(act.sum()) >= self.min_active_frames_for_threshold else col
+            m = float(np.nanmedian(sub))
+            med[d] = m
+            mad[d] = float(np.nanmedian(np.abs(sub - m)))
         return med + scale * 1.4826 * np.clip(mad, 1e-8, None)
 
     @staticmethod
@@ -273,14 +318,15 @@ class RobotSuddenChangeFilter(Filter):
                 if d in self.angular_dims:
                     xs[:, local_i] = np.unwrap(xs[:, local_i])
 
+        active_mask = self._active_mask(xs)
         smooth = self._cascaded_smooth(xs)
         residual = np.abs(xs - smooth)
         acc, jerk = self._finite_diff(xs)
         abs_acc, abs_jerk = np.abs(acc), np.abs(jerk)
 
-        tr = self._dim_threshold(residual, self.mad_scale_residual, self.residual_threshold)
-        ta = self._dim_threshold(abs_acc, self.mad_scale_acc, self.acc_threshold)
-        tj = self._dim_threshold(abs_jerk, self.mad_scale_jerk, self.jerk_threshold)
+        tr = self._dim_threshold(residual, self.mad_scale_residual, self.residual_threshold, active_mask)
+        ta = self._dim_threshold(abs_acc, self.mad_scale_acc, self.acc_threshold, active_mask)
+        tj = self._dim_threshold(abs_jerk, self.mad_scale_jerk, self.jerk_threshold, active_mask)
 
         dim_flags = (residual > tr) & ((abs_acc > ta) | (abs_jerk > tj))
         frame_flags = np.any(dim_flags, axis=1)

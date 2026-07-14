@@ -119,6 +119,34 @@ class RobotSuddenChangeFilterTest(DataJuicerTestCaseBase):
         self.assertFalse(s[Fields.stats]["sudden_change_keep"])
         self.assertGreaterEqual(s[Fields.stats]["sudden_change_num_flagged"], 1)
 
+    # ---- mad mode: long near-still segment with quantization jitter must not
+    # mass-flag (regression: MAD estimated from all frames collapses toward
+    # its floor when most of the trajectory is still, so tiny sensor/control
+    # quantization noise ends up exceeding the threshold on many frames) ----
+    def test_mad_still_quantization_noise_suppressed(self):
+        rng = np.random.default_rng(0)
+        t_len = 400
+        x = np.full(t_len, -0.0017)
+        jitter_idx = rng.choice(t_len, size=30, replace=False)
+        x[jitter_idx] += rng.choice([-0.0004, 0.0004], size=30)
+        # one genuine, smooth motion segment (not an anomaly)
+        x[200:230] += np.linspace(0, 0.05, 30)
+        x[230:] += 0.05
+
+        op = RobotSuddenChangeFilter(
+            signal_source="top_level",
+            threshold_mode="mad",
+            mad_scale_residual=6.0,
+            mad_scale_acc=6.0,
+            mad_scale_jerk=6.0,
+            max_flagged_ratio=1.0,
+            max_run_length=t_len,
+            min_frames=4,
+        )
+        s = self._stats(op, _col(x))
+        flagged_ratio = s[Fields.stats]["sudden_change_flagged_ratio"]
+        self.assertLess(flagged_ratio, 0.15)
+
     # ---- angular wrapping: on→keep, off→drop ----
     def test_angular_wrapping(self):
         t = np.arange(40)
