@@ -129,6 +129,29 @@ class RobotStateActionAlignmentFilterTest(DataJuicerTestCaseBase):
             s_on[Fields.stats]["state_action_min_da"],
         )
 
+    # ---- held action + noisy state: must not be mistaken for misalignment ----
+    # Regression: when action is exactly constant (controller holding position)
+    # and state only has small sensor jitter around it, sign(diff(action))==0
+    # can never equal sign(diff(state))!=0. Gating "active" on OR let this
+    # jitter alone dominate the active-frame set and force DA -> 0 even though
+    # there is no real state/action disagreement (action never asked for any
+    # direction to begin with). Gating on AND excludes these hold-phase frames.
+    def test_held_action_with_state_jitter_keep(self):
+        rng = np.random.RandomState(0)
+        t_len = 200
+        state = np.full(t_len, 0.3) + rng.normal(scale=0.01, size=t_len)
+        action = np.full(t_len, 0.3)  # controller holding position: never moves
+        cfg = dict(BASE)
+        # eps far below the state jitter scale: |ds| clears it on nearly every
+        # frame, while |da| is exactly 0 on every frame (action never moves).
+        cfg["eps_abs"] = 1e-6
+        op = RobotStateActionAlignmentFilter(**cfg)
+        s = self._stats(op, _col(state), _col(action))
+        # no dim should even be checked: action never exceeds eps, so there is
+        # no "active" frame with a real trend on both sides to compare.
+        self.assertEqual(s[Fields.stats]["state_action_num_checked_dims"], 0)
+        self.assertTrue(op.process_single(s))
+
     # ---- static (never moving) dim: skipped, not failed -> keep ----
     def test_static_dim_skipped_keep(self):
         static = np.ones(200) * 0.3

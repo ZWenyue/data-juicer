@@ -310,7 +310,12 @@ class RobotStateActionAlignmentFilter(Filter):
             ds = np.diff(sa[:m])
             da = np.diff(aa[:m])
             eps = self._eps_for_dim(d, xs)
-            active = (np.abs(ds) > eps) | (np.abs(da) > eps)
+            # 两侧都要有真实变化才纳入统计：action 恒定（controller 在保持位置）时
+            # da 精确为 0，sign(0) 永远不等于 state 侧噪声的非零符号，用「或」会把
+            # 「一侧在 hold、另一侧只是传感器噪声」误判成方向不一致（结构性假阳性，
+            # 与真实的时间戳错位/丢包无关）。改成「与」：只在两侧都确实有变化的帧上
+            # 才检验方向是否一致。
+            active = (np.abs(ds) > eps) & (np.abs(da) > eps)
             if int(active.sum()) < self.min_active_frames:
                 continue
 
