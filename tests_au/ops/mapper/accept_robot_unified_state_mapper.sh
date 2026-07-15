@@ -85,8 +85,8 @@ for r in rows:
     if np.allclose(s[:, [0, 2, 3, 4, 5, 6]], 0):
         errors.append(f"{ep}: left joints unexpectedly all zero")
     # Galaxea occupancy
-    if int(m[0].sum()) != 39:
-        errors.append(f"{ep}: expected 39 active dims, got {int(m[0].sum())}")
+    if int(m[0].sum()) != 42:
+        errors.append(f"{ep}: expected 42 active dims, got {int(m[0].sum())}")
     # 16-dim native still present from loader
     if "states" in r and len(r["states"][0]) != 16:
         errors.append(f"{ep}: native states not 16-dim")
@@ -96,7 +96,7 @@ for r in rows:
         errors.append(f"{ep}: missing meta unified_dim_occupancy")
     else:
         occ = json.loads(occ) if isinstance(occ, str) else occ
-        if occ.get("num_active") != 39:
+        if occ.get("num_active") != 42:
             errors.append(f"{ep}: meta num_active={occ.get('num_active')}")
 
 if errors:

@@ -268,6 +268,31 @@ def _fill_arm_block(
             mask_frame[base + OFF_HAND : base + OFF_HAND + n] = 1.0
 
 
+def _resolve_shared_array(block: Dict[str, Any], df, which: str) -> Optional[np.ndarray]:
+    """Load shared signal as (T, D). Supports single column or concatenated columns list."""
+    singular = "state_column" if which == "state" else "action_column"
+    plural = "state_columns" if which == "state" else "action_columns"
+    cols = block.get(plural)
+    if cols is None:
+        col = block.get(singular)
+        cols = [col] if col else None
+    if not cols:
+        return None
+    if isinstance(cols, str):
+        cols = [cols]
+    pieces = []
+    for c in cols:
+        if c not in df.columns:
+            return None
+        pieces.append(_as_TxD(df[c]))
+    if len(pieces) == 1:
+        return pieces[0]
+    T0 = pieces[0].shape[0]
+    if any(p.shape[0] != T0 for p in pieces):
+        raise ValueError(f"shared {plural} length mismatch: {[p.shape for p in pieces]}")
+    return np.concatenate(pieces, axis=-1)
+
+
 def _fill_shared(
     out: np.ndarray,
     mask_frame: np.ndarray,
@@ -275,26 +300,34 @@ def _fill_shared(
     df,
     which: str,
 ) -> None:
-    col_key = "state_column" if which == "state" else "action_column"
+    idx_key = "state_source_indices" if which == "state" else "action_source_indices"
     for _name, block in (shared_cfg or {}).items():
         if not block:
             continue
         slots = [int(s) for s in (block.get("slots") or [])]
         if not slots:
             continue
-        col = block.get(col_key)
-        if not col or col not in df.columns:
+        arr = _resolve_shared_array(block, df, which)
+        if arr is None:
             # occupancy still marked via build_dim_mask; values stay 0
             continue
-        arr = _as_TxD(df[col])
-        src_idx = block.get("action_source_indices") if which == "action" else block.get("state_source_indices")
+        src_idx = block.get(idx_key)
         if src_idx is None:
-            src_idx = list(range(len(slots)))
-        src_idx = [int(i) for i in src_idx]
-        if len(src_idx) != len(slots):
-            raise ValueError(f"shared {_name}: source_indices len != slots len")
-        for s_slot, s_i in zip(slots, src_idx):
-            if s_i >= arr.shape[1]:
+            # Default: map consecutive source dims into leading slots.
+            n = min(len(slots), arr.shape[1])
+            pairs = list(zip(slots[:n], range(n)))
+        else:
+            if len(src_idx) != len(slots):
+                raise ValueError(
+                    f"shared {_name}: {idx_key} len {len(src_idx)} != slots len {len(slots)}"
+                )
+            pairs = []
+            for s_slot, s_i in zip(slots, src_idx):
+                if s_i is None:
+                    continue
+                pairs.append((int(s_slot), int(s_i)))
+        for s_slot, s_i in pairs:
+            if s_i < 0 or s_i >= arr.shape[1]:
                 raise ValueError(f"shared {_name}: source index {s_i} OOB for {arr.shape}")
             out[:, SHARED_BASE + s_slot] = arr[:, s_i]
             mask_frame[SHARED_BASE + s_slot] = 1.0

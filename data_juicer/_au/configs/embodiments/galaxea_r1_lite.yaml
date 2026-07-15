@@ -54,14 +54,18 @@ arms:
     hand: null
 
 shared:
+  # Shared region [58:80].
+  # Chassis state 6D = position(3) + feedback velocity(3).
+  # Chassis action is ROS twist 6D (linear xyz + angular xyz) in this dataset.
   chassis:
-    state_column: observation.state.chassis
-    # action uses velocities; first 3 dims map into shared slots 0..2
+    state_columns:
+      - observation.state.chassis
+      - observation.state.chassis.velocities
     action_column: action.chassis.velocities
-    action_source_indices: [0, 1, 2]
-    slots: [0, 1, 2]
+    action_source_indices: [0, 1, 2, 3, 4, 5]
+    slots: [0, 1, 2, 3, 4, 5]
   torso:
     state_column: observation.state.torso
     action_column: action.torso.velocities
     action_source_indices: [0, 1, 2, 3]
-    slots: [3, 4, 5, 6]
+    slots: [6, 7, 8, 9]

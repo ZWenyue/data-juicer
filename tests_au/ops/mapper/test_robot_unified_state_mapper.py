@@ -93,10 +93,10 @@ class TestGalaxeaConfig(unittest.TestCase):
         self.assertTrue(np.all(mask[LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
         # hand empty
         self.assertTrue(np.all(mask[LEFT_BASE + 17 : LEFT_BASE + 29] == 0))
-        # chassis + torso shared
-        self.assertTrue(np.all(mask[SHARED_BASE : SHARED_BASE + 7] == 1))
-        self.assertTrue(np.all(mask[SHARED_BASE + 7 :] == 0))
-        self.assertEqual(int(mask.sum()), 39)
+        # chassis(6) + torso(4) shared
+        self.assertTrue(np.all(mask[SHARED_BASE : SHARED_BASE + 10] == 1))
+        self.assertTrue(np.all(mask[SHARED_BASE + 10 :] == 0))
+        self.assertEqual(int(mask.sum()), 42)
 
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
@@ -128,6 +128,9 @@ class TestPackReal(unittest.TestCase):
         # action has no EEF fill → EEF dims may be 0 but mask still 1
         self.assertTrue(np.allclose(actions[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9], 0))
         self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
+        # chassis: state = pose(3)+vel(3) into 6 slots; action twist also 6
+        self.assertEqual(mask[0, SHARED_BASE : SHARED_BASE + 6].sum(), 6)
+        self.assertEqual(states[0, SHARED_BASE : SHARED_BASE + 6].shape[0], 6)
 
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
@@ -152,7 +155,7 @@ class TestMapperReal(unittest.TestCase):
         self.assertEqual(out["num_frames"], len(out["unified_states"]))
         meta = json.loads(out[Fields.meta]["unified_dim_occupancy"])
         self.assertEqual(meta["dim"], 80)
-        self.assertEqual(meta["num_active"], 39)
+        self.assertEqual(meta["num_active"], 42)
 
     def test_skip_if_present(self):
         op = RobotUnifiedStateMapper(skip_if_present=True)

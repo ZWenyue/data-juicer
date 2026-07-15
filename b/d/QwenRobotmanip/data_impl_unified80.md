@@ -147,7 +147,7 @@ R1 Lite 仅 6 个物理关节 `j1..j6`（源下标 `0..5`），且 **无 shoulde
 
 配置文件：[`data_juicer/_au/configs/embodiments/galaxea_r1_lite.yaml`](../../../data_juicer/_au/configs/embodiments/galaxea_r1_lite.yaml)。
 
-对 R1 Lite，典型占用约 **39 / 80** 维（双手 pad + 共享未用槽 + shoulder_roll pad）。
+对 R1 Lite，典型占用约 **42 / 80** 维（双手 pad + shoulder_roll pad + 共享未用槽；chassis 占 6 维共享槽，torso 占 4 维）。
 
 ---
 
@@ -162,25 +162,19 @@ R1 Lite 仅 6 个物理关节 `j1..j6`（源下标 `0..5`），且 **无 shoulde
 ### 5.2 Schema 要点
 
 ```yaml
-name: galaxea_r1_lite
-arms:
-  left:
-    joint_map: { shoulder_pitch: 1, shoulder_roll: null, ... }
-    joint_sign: [1, 1, 1, 1, 1, 1, 1]   # 可选翻转
-    source: { state_column: ..., action_column: ... }
-    gripper: { state_column: ..., action_column: ... }
-    eef: { state_column: ..., rot_repr: quat_wxyz }
-    hand: null
-  right: { ... }
 shared:
   chassis:
-    state_column: observation.state.chassis
+    # state 6D = position(3) + feedback velocity(3)
+    state_columns:
+      - observation.state.chassis
+      - observation.state.chassis.velocities
+    # action: full twist 6D (linear xyz + angular xyz) in Galaxea LeRobot meta
     action_column: action.chassis.velocities
-    action_source_indices: [0, 1, 2]
-    slots: [0, 1, 2]          # 相对共享区 [58:80]
+    action_source_indices: [0, 1, 2, 3, 4, 5]
+    slots: [0, 1, 2, 3, 4, 5]
   torso:
     ...
-    slots: [3, 4, 5, 6]
+    slots: [6, 7, 8, 9]
 ```
 
 左右臂可各写一份 `joint_map`（安装对称差异时），也可结构镜像复制。
@@ -387,7 +381,7 @@ export PYTHONPATH=/mnt/r/share/zwy/Projects/data-juicer
 bash tests_au/ops/mapper/accept_robot_unified_state_mapper.sh
 ```
 
-验收项包括：导出含 `unified_states` / `unified_actions` / `unified_dim_mask`；R1 Lite 的 `shoulder_roll`（左维 1 / 右维 30）值为 0 且 mask 为 0；活跃维约 39。
+验收项包括：导出含 `unified_states` / `unified_actions` / `unified_dim_mask`；R1 Lite 的 `shoulder_roll`（左维 1 / 右维 30）值为 0 且 mask 为 0；活跃维约 42。
 
 ### 11.4 分析清洗：lerobot_press（R1 Lite）
 
