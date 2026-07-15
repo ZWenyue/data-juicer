@@ -1,0 +1,35 @@
+# Check 3 改良: Episode-Level Video Quality Filtering Pipeline
+# Simplified alternative — reject entire episodes instead of per-frame deletion
+project_name: 'accept-video-quality-episode-filtering'
+dataset_path: 'tests_au/ops/filter/outputs/lerobot_episodes.jsonl'
+export_path: 'tests_au/ops/filter/outputs/check3_episode_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  # Step 1: Keyframe detection (reuse from original pipeline)
+  - robot_key_frame_detector_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      gripper_dims: null
+      gripper_field: null
+      gripper_delta_threshold: 5.0
+      gripper_close_direction: 'decrease'
+      state_velocity_percentile: 95.0
+      keyframe_window: 3
+      report_field: 'key_frame_report'
+
+  # Step 2: Episode-level quality gate (replaces Steps 3-5 of original)
+  - robot_video_quality_episode_filter:
+      quality_report_field: 'frame_quality_report'
+      keyframe_report_field: 'key_frame_report'
+      max_bad_ratio: 0.1
+      min_good_frames: 20
+      max_keyframe_overlap: 0
+      report_field: 'video_quality_episode_report'

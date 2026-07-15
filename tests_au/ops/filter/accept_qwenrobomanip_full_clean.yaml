@@ -1,0 +1,117 @@
+# Full clean recipe (Galaxea / LeRobot pointer JSONL):
+#   loader → Stage1/2/3 → Stage5 → Check3 (episode gate) → unified 80-dim mapper
+#
+# Input must provide parquet_path (and preferably videos=[head_rgb,...] for Check3 Op1).
+# 80-dim vectors land on the exported JSONL as unified_states / unified_actions /
+# unified_dim_mask. Optional LeRobot parquet export is handled by the shell wrapper.
+project_name: 'accept-qwenrobomanip-full-clean'
+dataset_path: 'tests_au/ops/filter/outputs/full_clean_pointer.jsonl'
+export_path: 'tests_au/ops/filter/outputs/full_clean_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  # ---- Load 16-dim native states/actions from parquet ----
+  - robot_lerobot_parquet_loader_mapper:
+      parquet_field: 'parquet_path'
+      state_key: 'states'
+      action_key: 'actions'
+      skip_if_present: true
+
+  # ---- Stage 1: Sudden Change Detection ----
+  - robot_sudden_change_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      threshold_mode: 'mad'
+      mad_scale_residual: 6.0
+      mad_scale_acc: 6.0
+      mad_scale_jerk: 6.0
+      max_flagged_ratio: 0.3
+      max_run_length: 10
+      min_frames: 30
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/full_clean_s1_stats.jsonl'
+
+  # ---- Stage 2: State-Action Trend Alignment ----
+  - robot_state_action_alignment_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      shared_dims: [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]
+      action_is_delta: false
+      max_lag: 15
+      da_threshold: 0.65
+      eps_mode: 'range_frac'
+      eps_frac: 0.01
+      min_active_frames: 10
+      min_frames: 20
+      exclusion_strategy: 'flag_only'
+      stats_export_path: 'tests_au/ops/filter/outputs/full_clean_s2_stats.jsonl'
+
+  # ---- Stage 3: Extreme Value Filtering ----
+  - robot_extreme_value_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      percentile_source: 'stats_json'
+      percentile_stats_path: 'tests_au/ops/filter/outputs/percentiles.json'
+      embodiment: 'galaxea_r1_lite'
+      alpha: 0.1
+      exempt_dims: [7, 15]
+      exclusion_strategy: 'frame_mask'
+      stats_export_path: 'tests_au/ops/filter/outputs/full_clean_s3_stats.jsonl'
+
+  # ---- Stage 5: Base Frame Alignment (joint-space → identity pass-through) ----
+  - robot_base_frame_alignment_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      correction_source: 'preset'
+      preset_name: 'identity'
+      report_field: 'base_frame_alignment_report'
+
+  # ---- Check 3 Op1: Frame quality scoring (needs sample['videos']) ----
+  # decoder=auto: PyAV (AV1/libdav1d) → OpenCV → ffmpeg CLI
+  - robot_frame_quality_scorer_mapper:
+      blackness_threshold: 10.0
+      blur_threshold: 50.0
+      corrupt_check_enabled: true
+      video_field_index: 0
+      decoder: 'auto'
+      report_field: 'frame_quality_report'
+
+  # ---- Check 3 Op2: Keyframe protection set ----
+  - robot_key_frame_detector_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      gripper_delta_threshold: 5.0
+      gripper_close_direction: 'decrease'
+      state_velocity_percentile: 95.0
+      keyframe_window: 3
+      report_field: 'key_frame_report'
+
+  # ---- Check 3 Op3: Episode-level quality gate ----
+  - robot_video_quality_episode_filter:
+      quality_report_field: 'frame_quality_report'
+      keyframe_report_field: 'key_frame_report'
+      max_bad_ratio: 0.1
+      min_good_frames: 20
+      max_keyframe_overlap: 0
+      report_field: 'video_quality_episode_report'
+
+  # ---- Optional-in-recipe but included: pack to unified 80-dim ----
+  - robot_unified_state_mapper:
+      embodiment: 'galaxea_r1_lite'
+      parquet_field: 'parquet_path'
+      state_key: 'unified_states'
+      action_key: 'unified_actions'
+      mask_key: 'unified_dim_mask'
+      skip_if_present: false
+      write_meta_occupancy: true
