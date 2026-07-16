@@ -21,6 +21,15 @@ cd "$(dirname "$0")"
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$OUT"
 
+# robot_type (info.json) → embodiment YAML stem under configs/embodiments/
+embodiment_from_robot_type() {
+  case "$1" in
+    r1lite|r1_lite) echo "galaxea_r1_lite" ;;
+    r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
+    *)              echo "" ;;
+  esac
+}
+
 n_ok=0; n_skip=0
 for d in "$CLEAN_ROOT"/*/; do
   d="${d%/}"; task="$(basename "$d")"
@@ -29,20 +38,20 @@ for d in "$CLEAN_ROOT"/*/; do
   [[ -s "$cleaned" ]] || { echo "[SKIP] $task (无 cleaned.jsonl)"; n_skip=$((n_skip+1)); continue; }
   [[ -d "$src/data" ]] || { echo "[SKIP] $task (源任务不存在: $src)"; n_skip=$((n_skip+1)); continue; }
 
-  # r1lite 才有 embodiment 布局；其它体态跳过 80 维导出
   rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$src/meta/info.json" 2>/dev/null || echo "")"
-  if [[ "$rt" != r1lite && "$rt" != r1_lite ]]; then
-    echo "[SKIP] $task (robot_type=$rt 无 galaxea_r1_lite 布局)"
+  emb="$(embodiment_from_robot_type "$rt")"
+  if [[ -z "$emb" ]]; then
+    echo "[SKIP] $task (robot_type=$rt 无 embodiment 布局)"
     n_skip=$((n_skip+1))
     continue
   fi
 
-  echo "=== $task → $OUT/$task"
+  echo "=== $task → $OUT/$task (robot_type=$rt, embodiment=$emb)"
   "$PY" -m data_juicer._au.pipeline.robot_clean.export_unified \
     --cleaned "$cleaned" \
     --dataset "$src" \
     --output "$OUT/$task" \
-    --embodiment galaxea_r1_lite
+    --embodiment "$emb"
   n_ok=$((n_ok+1))
 done
 

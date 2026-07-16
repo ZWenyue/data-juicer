@@ -36,6 +36,12 @@ from data_juicer.utils.constant import Fields  # noqa: E402
 REAL_DATASET_DIR = "/mnt/r/DATA/tst/Galaxea-Open-World-Dataset/Connect_Router_Cables_20250625_002"
 REAL_DATA_AVAILABLE = os.path.isdir(os.path.join(REAL_DATASET_DIR, "data", "chunk-000"))
 
+R1PRO_DATASET_DIR = (
+    "/mnt/r/DATA/Galaxea-Open-World-Dataset/r1pro/"
+    "Put_The_Items_Into_The_Storage_Box_20250929_002_007"
+)
+R1PRO_DATA_AVAILABLE = os.path.isdir(os.path.join(R1PRO_DATASET_DIR, "data", "chunk-000"))
+
 
 class TestRemapJoints(unittest.TestCase):
     def test_canonical_order_and_null_pad(self):
@@ -98,6 +104,28 @@ class TestGalaxeaConfig(unittest.TestCase):
         self.assertTrue(np.all(mask[SHARED_BASE + 10 :] == 0))
         self.assertEqual(int(mask.sum()), 42)
 
+    def test_load_r1_pro_by_name(self):
+        cfg = load_embodiment_config("galaxea_r1_pro")
+        self.assertEqual(cfg["name"], "galaxea_r1_pro")
+        # identity joint map j1..j7 → slots 0..6
+        for side in ("left", "right"):
+            jm = cfg["arms"][side]["joint_map"]
+            for i, name in enumerate(CANONICAL_JOINT_NAMES):
+                self.assertEqual(jm[name], i)
+            self.assertEqual(cfg["arms"][side]["eef"]["rot_repr"], "quat_xyzw")
+        mask = build_dim_mask(cfg)
+        # all 7 joint slots occupied (no shoulder_roll pad)
+        for base in (LEFT_BASE, RIGHT_BASE):
+            for i in range(7):
+                self.assertEqual(mask[base + OFF_JOINT + i], 1.0)
+            self.assertEqual(mask[base + OFF_GRIPPER], 1.0)
+            self.assertTrue(np.all(mask[base + OFF_EEF : base + OFF_EEF + 9] == 1))
+            self.assertTrue(np.all(mask[base + 17 : base + 29] == 0))
+        self.assertTrue(np.all(mask[SHARED_BASE : SHARED_BASE + 10] == 1))
+        self.assertTrue(np.all(mask[SHARED_BASE + 10 :] == 0))
+        # 7+7 joints + 9+9 eef + 1+1 grip + 6 chassis + 4 torso = 44
+        self.assertEqual(int(mask.sum()), 44)
+
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
 class TestPackReal(unittest.TestCase):
@@ -131,6 +159,41 @@ class TestPackReal(unittest.TestCase):
         # chassis: state = pose(3)+vel(3) into 6 slots; action twist also 6
         self.assertEqual(mask[0, SHARED_BASE : SHARED_BASE + 6].sum(), 6)
         self.assertEqual(states[0, SHARED_BASE : SHARED_BASE + 6].shape[0], 6)
+
+
+@unittest.skipUnless(R1PRO_DATA_AVAILABLE, "R1 Pro dataset not found")
+class TestPackRealR1Pro(unittest.TestCase):
+    def test_pack_episode_identity_joints(self):
+        import glob
+
+        import pyarrow.parquet as pq
+
+        pf = sorted(
+            glob.glob(os.path.join(R1PRO_DATASET_DIR, "data", "chunk-000", "episode_*.parquet"))
+        )[0]
+        df = pq.read_table(pf).to_pandas()
+        cfg = load_embodiment_config("galaxea_r1_pro")
+        states, actions, mask = pack_episode_to_80(df, cfg)
+        T = len(df)
+        self.assertEqual(states.shape, (T, 80))
+        self.assertEqual(actions.shape, (T, 80))
+        self.assertEqual(mask.shape, (T, 80))
+        self.assertEqual(int(mask[0].sum()), 44)
+        # identity remap: unified joint slot i == source arm[:, i]
+        left_src = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state.left_arm"]])
+        np.testing.assert_allclose(states[:, LEFT_BASE : LEFT_BASE + 7], left_src)
+        right_src = np.stack(
+            [np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state.right_arm"]]
+        )
+        np.testing.assert_allclose(states[:, RIGHT_BASE : RIGHT_BASE + 7], right_src)
+        # all 7 joint slots occupied
+        self.assertTrue(np.all(mask[:, LEFT_BASE : LEFT_BASE + 7] == 1))
+        self.assertTrue(np.all(mask[:, RIGHT_BASE : RIGHT_BASE + 7] == 1))
+        # no torso action column → action torso slots stay 0; mask still occupied
+        self.assertTrue(np.allclose(actions[:, SHARED_BASE + 6 : SHARED_BASE + 10], 0))
+        self.assertTrue(np.all(mask[:, SHARED_BASE + 6 : SHARED_BASE + 10] == 1))
+        # torso state present
+        self.assertFalse(np.allclose(states[:, SHARED_BASE + 6 : SHARED_BASE + 10], 0))
 
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
