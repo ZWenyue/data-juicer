@@ -35,19 +35,20 @@ class CleanConfig:
     s1_max_flagged_ratio: float = 0.3
     s1_max_run_length: int = 10
     s1_min_frames: int = 30
-    s1_exclusion_strategy: str = "frame_mask"
+    s1_exclusion_strategy: str = "episode_discard"
 
     # Stage 2
     s2_shared_dims: List[int] = field(
         default_factory=lambda: [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]
     )
     s2_da_threshold: float = 0.65
-    s2_exclusion_strategy: str = "flag_only"
+    s2_exclusion_strategy: str = "episode_discard"
 
     # Stage 3
     s3_alpha: float = 0.1
+    s3_max_flagged_ratio: float = 0.3
     s3_exempt_dims: List[int] = field(default_factory=lambda: [7, 15])
-    s3_exclusion_strategy: str = "frame_mask"
+    s3_exclusion_strategy: str = "episode_discard"
     # If set, reuse this file instead of recomputing percentiles.
     percentiles_path: Optional[str] = None
 

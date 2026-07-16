@@ -98,6 +98,7 @@ def build_process_ops(cfg: CleanConfig) -> List[Dict[str, Any]]:
                     "alpha": cfg.s3_alpha,
                     "exempt_dims": list(cfg.s3_exempt_dims),
                     "exclusion_strategy": cfg.s3_exclusion_strategy,
+                    "max_flagged_ratio": cfg.s3_max_flagged_ratio,
                     "stats_export_path": str(stats_dir / "s3_stats.jsonl"),
                 }
             }

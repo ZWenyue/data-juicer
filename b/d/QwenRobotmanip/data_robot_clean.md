@@ -263,10 +263,9 @@ flowchart LR
 
 要点：
 
-- Stage 1/3 默认 **`frame_mask`**：写/合并 `valid_frame_mask`，**不裁剪** states 数组，也不因数值阶段直接丢整段（除非后续改为 `episode_discard`）。
-- Stage 2 默认 **`flag_only`**：只报告对齐质量，不删帧、不丢 episode。
-- Check 3 EpisodeFilter 是当前默认链上**真正会减少 episode 数**的硬门控。
-- Unified Mapper 只对**存活样本**执行，并从原始 `parquet_path` 重新 pack 80 维（与 mask 清洗正交，保证表示完整）。
+- Stage 1/2/3 默认均为 **`episode_discard`**：任一阶段判不合格即**整段 episode 丢弃**（S1：`flagged_ratio`/`max_run`；S2：`min_da`；S3：`flagged_ratio > max_flagged_ratio`）。
+- Check 3 EpisodeFilter 仍是视频侧硬门控；与数值侧串联后，存活样本 = 通过全部门控的 episode。
+- Unified Mapper 只对**存活样本**执行，并从原始 `parquet_path` 重新 pack 80 维。
 
 ---
 
@@ -276,9 +275,9 @@ flowchart LR
 
 | 阶段 | 算子 | 默认策略 | 主要输出 |
 |------|------|----------|----------|
-| 1 突变 | `robot_sudden_change_filter` | MAD + residual/acc/jerk；`frame_mask` | `sudden_change_*` stats，report，mask |
-| 2 对齐 | `robot_state_action_alignment_filter` | 互相关 \(D_a\)；`flag_only` | `state_action_*` stats |
-| 3 极值 | `robot_extreme_value_filter` | 体态 q01/q99 ± \(\alpha\)；`frame_mask` | `extreme_value_*`，mask |
+| 1 突变 | `robot_sudden_change_filter` | MAD + residual/acc/jerk；**`episode_discard`** | `sudden_change_*` stats；不合格整段丢弃 |
+| 2 对齐 | `robot_state_action_alignment_filter` | 互相关 \(D_a\)；**`episode_discard`** | `state_action_*` stats；不合格整段丢弃 |
+| 3 极值 | `robot_extreme_value_filter` | 体态 q01/q99 ± \(\alpha\)；**`episode_discard`**（`max_flagged_ratio=0.3`） | `extreme_value_*`；不合格整段丢弃 |
 | 5 基座 | `robot_base_frame_alignment_mapper` | `preset=identity`（Galaxea 关节空间透传） | 通常无副作用 |
 
 Stage 3 分位数形式（对每个维度）：
