@@ -182,6 +182,36 @@ def _as_Tx1(col) -> np.ndarray:
     return np.asarray([float(np.asarray(v).reshape(-1)[0]) for v in col], dtype=float).reshape(-1, 1)
 
 
+def _column_with_selection(
+    df,
+    column: Optional[str],
+    *,
+    indices: Optional[Sequence] = None,
+    slice_pair: Optional[Sequence] = None,
+) -> Optional[np.ndarray]:
+    """Load a dataframe column as (T, D), optionally slicing packed dims.
+
+    ``slice_pair`` is half-open ``[start, end)``. ``indices`` picks arbitrary
+    columns. If both are set, ``slice_pair`` wins. Neither → full column.
+    """
+    if not column or column not in df.columns:
+        return None
+    arr = _as_TxD(df[column])
+    if slice_pair is not None:
+        if len(slice_pair) != 2:
+            raise ValueError(f"slice must be [start, end), got {slice_pair!r}")
+        lo, hi = int(slice_pair[0]), int(slice_pair[1])
+        if not (0 <= lo < hi <= arr.shape[1]):
+            raise ValueError(f"slice [{lo},{hi}) OOB for column dim {arr.shape[1]}")
+        return arr[:, lo:hi]
+    if indices is not None:
+        idx = [int(i) for i in indices]
+        if any(i < 0 or i >= arr.shape[1] for i in idx):
+            raise ValueError(f"source indices {idx} OOB for column dim {arr.shape[1]}")
+        return arr[:, idx]
+    return arr
+
+
 def build_dim_mask(cfg: Dict[str, Any]) -> np.ndarray:
     """Build static occupancy mask (80,) from embodiment config (no data needed)."""
     mask = np.zeros(UNIFIED_DIM, dtype=float)
@@ -229,10 +259,18 @@ def _fill_arm_block(
     T = out.shape[0]
     src_cfg = arm_cfg.get("source") or {}
     col_key = "state_column" if which == "state" else "action_column"
-    joint_col = src_cfg.get(col_key)
-    if joint_col and joint_col in df.columns:
+    idx_key = "state_source_indices" if which == "state" else "action_source_indices"
+    slice_key = "state_slice" if which == "state" else "action_slice"
+
+    joint_arr = _column_with_selection(
+        df,
+        src_cfg.get(col_key),
+        indices=src_cfg.get(idx_key),
+        slice_pair=src_cfg.get(slice_key),
+    )
+    if joint_arr is not None:
         joints, jocc = remap_joints_to_canonical(
-            _as_TxD(df[joint_col]),
+            joint_arr,
             arm_cfg["joint_map"],
             arm_cfg.get("joint_sign"),
         )
@@ -243,28 +281,41 @@ def _fill_arm_block(
 
     grip = arm_cfg.get("gripper")
     if grip:
-        gcol = grip.get(col_key)
-        if gcol and gcol in df.columns:
-            g = _as_Tx1(df[gcol])
-            out[:, base + OFF_GRIPPER] = g[:, 0]
+        g_arr = _column_with_selection(
+            df,
+            grip.get(col_key),
+            indices=grip.get(idx_key),
+            slice_pair=grip.get(slice_key),
+        )
+        if g_arr is not None:
+            out[:, base + OFF_GRIPPER] = g_arr[:, 0]
             mask_frame[base + OFF_GRIPPER] = 1.0
 
     eef = arm_cfg.get("eef")
     if eef and which == "state":
-        ecol = eef.get("state_column")
-        if ecol and ecol in df.columns:
-            pose9 = ee_pose_to_9d(_as_TxD(df[ecol]), eef.get("rot_repr", "quat_wxyz"))
+        e_arr = _column_with_selection(
+            df,
+            eef.get("state_column"),
+            indices=eef.get("state_source_indices"),
+            slice_pair=eef.get("state_slice"),
+        )
+        if e_arr is not None:
+            pose9 = ee_pose_to_9d(e_arr, eef.get("rot_repr", "quat_wxyz"))
             out[:, base + OFF_EEF : base + OFF_EEF + NUM_EEF] = pose9
             mask_frame[base + OFF_EEF : base + OFF_EEF + NUM_EEF] = 1.0
     # action EEF deferred (camera-frame delta)
 
     hand = arm_cfg.get("hand")
     if hand:
-        hcol = hand.get(col_key) or hand.get("state_column" if which == "state" else "action_column")
-        if hcol and hcol in df.columns:
-            h = _as_TxD(df[hcol])
-            n = min(h.shape[1], NUM_HAND)
-            out[:, base + OFF_HAND : base + OFF_HAND + n] = h[:, :n]
+        h_arr = _column_with_selection(
+            df,
+            hand.get(col_key) or hand.get("state_column" if which == "state" else "action_column"),
+            indices=hand.get(idx_key),
+            slice_pair=hand.get(slice_key),
+        )
+        if h_arr is not None:
+            n = min(h_arr.shape[1], NUM_HAND)
+            out[:, base + OFF_HAND : base + OFF_HAND + n] = h_arr[:, :n]
             mask_frame[base + OFF_HAND : base + OFF_HAND + n] = 1.0
 
 

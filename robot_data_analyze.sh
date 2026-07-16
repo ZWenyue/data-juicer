@@ -4,8 +4,8 @@
 # 先跑这个定参，再用同样的旗标跑 robot_data_clean.sh。
 set -euo pipefail
 
-ROOT="${DATASET_ROOT:-/mnt/r/DATA/Galaxea-Open-World-Dataset/260711}"
-OUT="${OUT_ROOT:-/mnt/r/DATA/Galaxea-Open-World-Dataset/process_clean/260711_analyze}"
+ROOT="${DATASET_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press}"
+OUT="${OUT_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/analyze}"
 PY="${DJ_VENV:-/mnt/r/VENV/dj}/bin/python"
 PROBE_EPS="${PROBE_EPS:-8}"           # Check3 视频探针每任务评分的 episode 数
 PROBE_FPS="${PROBE_FPS:-2}"           # 视频探针抽帧 fps
@@ -15,11 +15,23 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$OUT"
 SUMMARY="$OUT/suggested_flags.txt"; : > "$SUMMARY"
 
-# robot_type (info.json) → embodiment YAML stem under configs/embodiments/
-embodiment_from_robot_type() {
-  case "$1" in
+# robot_type (info.json) / embodiment_tag → YAML stem under configs/embodiments/
+# Prefer embodiment.json tag when present (GR00T R1Pro vs Galaxea r1pro).
+embodiment_from_meta() {
+  local info="$1"
+  local emb_json="$(dirname "$info")/embodiment.json"
+  local tag=""
+  if [[ -f "$emb_json" ]]; then
+    tag="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('embodiment_tag') or '')" "$emb_json" 2>/dev/null || true)"
+  fi
+  case "$tag" in
+    sim_behavior_r1_pro|behavior_r1_pro) echo "sim_behavior_r1_pro"; return ;;
+  esac
+  local rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$info")"
+  case "$rt" in
     r1lite|r1_lite) echo "galaxea_r1_lite" ;;
     r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
+    R1Pro)          echo "sim_behavior_r1_pro" ;;
     *)              echo "" ;;
   esac
 }
@@ -29,7 +41,7 @@ for d in "$ROOT"/*/; do
   [[ -d "$d/data" ]] || continue
 
   rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$d/meta/info.json")"
-  emb="$(embodiment_from_robot_type "$rt")"
+  emb="$(embodiment_from_meta "$d/meta/info.json")"
   if [[ -z "$emb" ]]; then
     echo "[SKIP] $task (robot_type=$rt 无 embodiment 布局)"
     continue

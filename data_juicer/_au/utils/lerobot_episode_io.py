@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Shared LeRobot episode array IO for Galaxea / unified layouts."""
+"""Shared LeRobot episode array IO for Galaxea / packed / unified layouts."""
 
 from __future__ import annotations
 
 import glob
+import json
 import os
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -25,6 +27,9 @@ DECOMP_ACTION = {
     "right_arm": "action.right_arm",
     "right_gripper": "action.right_gripper",
 }
+
+# Stage 1/2/3 numeric clean layout
+CLEAN_SIGNAL_DIM = 16
 
 
 def _as_TxD(col, expected_last_dim=None):
@@ -74,12 +79,17 @@ def _has_decomposed(df):
     return all(c in df.columns for c in needed)
 
 
+def _is_clean_signal_dim(arr: np.ndarray) -> bool:
+    return arr.ndim == 2 and arr.shape[1] == CLEAN_SIGNAL_DIM
+
+
 def episode_arrays_from_df(df) -> Tuple[np.ndarray, np.ndarray]:
-    """Return (states, actions) as float arrays (T, D)."""
-    if _has_unified(df):
-        states = np.stack([np.asarray(v, dtype=float) for v in df["observation.state"]])
-        actions = np.stack([np.asarray(v, dtype=float) for v in df["action"]])
-        return states, actions
+    """Return (states, actions) as float arrays (T, D).
+
+    Preference:
+    1. Decomposed Galaxea arm/gripper columns → 16-dim clean layout
+    2. ``observation.state`` / ``action`` columns as-is (may be 16 / 80 / packed)
+    """
     if _has_decomposed(df):
         states = pack_decomposed_to_16(
             _as_TxD(df[DECOMP_STATE["left_arm"]]),
@@ -94,6 +104,10 @@ def episode_arrays_from_df(df) -> Tuple[np.ndarray, np.ndarray]:
             _as_TxD(df[DECOMP_ACTION["right_gripper"]]),
         )
         return states, actions
+    if _has_unified(df):
+        states = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state"]])
+        actions = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["action"]])
+        return states, actions
     missing = []
     for c in ["observation.state", "action"] + list(DECOMP_STATE.values()) + list(DECOMP_ACTION.values()):
         if c not in df.columns:
@@ -104,10 +118,160 @@ def episode_arrays_from_df(df) -> Tuple[np.ndarray, np.ndarray]:
     )
 
 
-def load_episode_arrays(parquet_path: str) -> Tuple[np.ndarray, np.ndarray]:
-    """Load one episode parquet and return (states, actions)."""
+def _arm_gripper_from_cfg(df, arm_cfg: Dict[str, Any], which: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Extract (T, DoF) arm joints and (T,) gripper using embodiment arm block."""
+    from .embodiment_layout import _column_with_selection
+
+    col_key = "state_column" if which == "state" else "action_column"
+    idx_key = "state_source_indices" if which == "state" else "action_source_indices"
+    slice_key = "state_slice" if which == "state" else "action_slice"
+
+    src = arm_cfg.get("source") or {}
+    arm = _column_with_selection(
+        df,
+        src.get(col_key),
+        indices=src.get(idx_key),
+        slice_pair=src.get(slice_key),
+    )
+    if arm is None:
+        raise ValueError(f"Cannot resolve {which} arm joints from embodiment source={src}")
+
+    grip_cfg = arm_cfg.get("gripper") or {}
+    grip = _column_with_selection(
+        df,
+        grip_cfg.get(col_key),
+        indices=grip_cfg.get(idx_key),
+        slice_pair=grip_cfg.get(slice_key),
+    )
+    if grip is None:
+        raise ValueError(f"Cannot resolve {which} gripper from embodiment gripper={grip_cfg}")
+    return arm, grip[:, 0]
+
+
+def episode_arrays_from_embodiment(
+    df,
+    embodiment: Union[str, Path, Dict[str, Any]],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Load Stage1/2/3 clean signals (T, 16) using an embodiment YAML.
+
+    - Decomposed Galaxea columns → ``pack_decomposed_to_16`` (unchanged).
+    - Else extract left/right arm+gripper via yaml ``source`` / ``*_slice``.
+    - Else if ``observation.state`` is already 16-dim, use as-is.
+    """
+    from .embodiment_layout import load_embodiment_config
+
+    if _has_decomposed(df):
+        return episode_arrays_from_df(df)
+
+    if isinstance(embodiment, dict):
+        cfg = embodiment
+    else:
+        cfg = load_embodiment_config(embodiment)
+
+    arms = cfg.get("arms") or {}
+    if "left" in arms and "right" in arms:
+        try:
+            la, lg = _arm_gripper_from_cfg(df, arms["left"], "state")
+            ra, rg = _arm_gripper_from_cfg(df, arms["right"], "state")
+            la_a, lg_a = _arm_gripper_from_cfg(df, arms["left"], "action")
+            ra_a, rg_a = _arm_gripper_from_cfg(df, arms["right"], "action")
+            states = pack_decomposed_to_16(la, lg, ra, rg)
+            actions = pack_decomposed_to_16(la_a, lg_a, ra_a, rg_a)
+            return states, actions
+        except ValueError:
+            pass
+
+    if _has_unified(df):
+        states, actions = episode_arrays_from_df(df)
+        if _is_clean_signal_dim(states) and _is_clean_signal_dim(actions):
+            return states, actions
+        raise ValueError(
+            f"Embodiment {cfg.get('name', embodiment)!r} could not slice arm/gripper, "
+            f"and observation.state/action are not 16-dim "
+            f"(got state={states.shape}, action={actions.shape}). "
+            "Check embodiment YAML source/slice fields."
+        )
+
+    raise ValueError(
+        f"Embodiment {cfg.get('name', embodiment)!r}: no decomposed columns and "
+        "no usable observation.state/action."
+    )
+
+
+def load_episode_arrays(
+    parquet_path: str,
+    embodiment: Optional[Union[str, Path, Dict[str, Any]]] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Load one episode parquet and return (states, actions).
+
+    When ``embodiment`` is set, prefer the 16-dim clean layout derived from the
+    embodiment YAML (required for packed GR00T-style ``observation.state``).
+    """
     df = pq.read_table(parquet_path).to_pandas()
+    if embodiment is not None:
+        return episode_arrays_from_embodiment(df, embodiment)
     return episode_arrays_from_df(df)
+
+
+def resolve_video_key(dataset: str, preferred: Optional[str] = None) -> Optional[str]:
+    """Pick a camera key under ``videos/chunk-*/{key}/``.
+
+    Order: ``preferred`` if present on disk → info.json video feature whose
+    dirname exists (prefer *head*) → first videos subdir.
+    """
+    root = Path(dataset)
+    video_root = root / "videos"
+    if not video_root.is_dir():
+        return preferred
+
+    def _exists(key: str) -> bool:
+        if not key:
+            return False
+        for chunk in video_root.glob("chunk-*"):
+            if (chunk / key).is_dir():
+                return True
+        return False
+
+    if preferred and _exists(preferred):
+        return preferred
+
+    info_path = root / "meta" / "info.json"
+    candidates: List[str] = []
+    if info_path.is_file():
+        try:
+            feats = json.loads(info_path.read_text(encoding="utf-8")).get("features") or {}
+            for name, meta in feats.items():
+                if isinstance(meta, dict) and meta.get("dtype") == "video":
+                    candidates.append(name)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+
+    # modality.json may map short names → original_key used on disk
+    modality_path = root / "meta" / "modality.json"
+    if modality_path.is_file():
+        try:
+            mod = json.loads(modality_path.read_text(encoding="utf-8"))
+            for _short, meta in (mod.get("video") or {}).items():
+                if isinstance(meta, dict):
+                    ok = meta.get("original_key")
+                    if ok:
+                        candidates.append(ok)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+
+    # prefer head camera
+    for key in candidates:
+        if "head" in key.lower() and _exists(key):
+            return key
+    for key in candidates:
+        if _exists(key):
+            return key
+
+    for chunk in sorted(video_root.glob("chunk-*")):
+        for sub in sorted(chunk.iterdir()):
+            if sub.is_dir():
+                return sub.name
+    return preferred
 
 
 def iter_task_dirs(root: str):

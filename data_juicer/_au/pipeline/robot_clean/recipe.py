@@ -40,6 +40,7 @@ def build_process_ops(cfg: CleanConfig) -> List[Dict[str, Any]]:
                 "state_key": "states",
                 "action_key": "actions",
                 "skip_if_present": True,
+                "embodiment": cfg.embodiment,
             }
         }
     )

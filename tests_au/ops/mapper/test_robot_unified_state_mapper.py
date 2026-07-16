@@ -42,6 +42,12 @@ R1PRO_DATASET_DIR = (
 )
 R1PRO_DATA_AVAILABLE = os.path.isdir(os.path.join(R1PRO_DATASET_DIR, "data", "chunk-000"))
 
+SIM_R1PRO_DATASET_DIR = (
+    "/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press/"
+    "sim_behavior_r1_pro.task-0000_turning_on_radio"
+)
+SIM_R1PRO_DATA_AVAILABLE = os.path.isdir(os.path.join(SIM_R1PRO_DATASET_DIR, "data", "chunk-000"))
+
 
 class TestRemapJoints(unittest.TestCase):
     def test_canonical_order_and_null_pad(self):
@@ -126,6 +132,14 @@ class TestGalaxeaConfig(unittest.TestCase):
         # 7+7 joints + 9+9 eef + 1+1 grip + 6 chassis + 4 torso = 44
         self.assertEqual(int(mask.sum()), 44)
 
+    def test_load_sim_behavior_r1_pro_by_name(self):
+        cfg = load_embodiment_config("sim_behavior_r1_pro")
+        self.assertEqual(cfg["name"], "sim_behavior_r1_pro")
+        self.assertEqual(cfg["arms"]["left"]["source"]["state_slice"], [158, 165])
+        self.assertEqual(cfg["arms"]["left"]["eef"]["rot_repr"], "quat_wxyz")
+        mask = build_dim_mask(cfg)
+        self.assertEqual(int(mask.sum()), 44)
+
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
 class TestPackReal(unittest.TestCase):
@@ -194,6 +208,48 @@ class TestPackRealR1Pro(unittest.TestCase):
         self.assertTrue(np.all(mask[:, SHARED_BASE + 6 : SHARED_BASE + 10] == 1))
         # torso state present
         self.assertFalse(np.allclose(states[:, SHARED_BASE + 6 : SHARED_BASE + 10], 0))
+
+
+@unittest.skipUnless(SIM_R1PRO_DATA_AVAILABLE, "GR00T sim R1 Pro dataset not found")
+class TestPackRealSimBehaviorR1Pro(unittest.TestCase):
+    def test_pack_packed_state_slices(self):
+        import glob
+
+        import pyarrow.parquet as pq
+
+        pf = sorted(
+            glob.glob(os.path.join(SIM_R1PRO_DATASET_DIR, "data", "chunk-000", "episode_*.parquet"))
+        )[0]
+        df = pq.read_table(pf).to_pandas()
+        cfg = load_embodiment_config("sim_behavior_r1_pro")
+        states, actions, mask = pack_episode_to_80(df, cfg)
+        T = len(df)
+        self.assertEqual(states.shape, (T, 80))
+        self.assertEqual(actions.shape, (T, 80))
+        self.assertEqual(int(mask[0].sum()), 44)
+
+        obs = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state"]])
+        act = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["action"]])
+        # left/right arm identity slices
+        np.testing.assert_allclose(states[:, LEFT_BASE : LEFT_BASE + 7], obs[:, 158:165])
+        np.testing.assert_allclose(states[:, RIGHT_BASE : RIGHT_BASE + 7], obs[:, 197:204])
+        np.testing.assert_allclose(actions[:, LEFT_BASE : LEFT_BASE + 7], act[:, 7:14])
+        np.testing.assert_allclose(actions[:, RIGHT_BASE : RIGHT_BASE + 7], act[:, 15:22])
+        # gripper first finger / scalar action
+        np.testing.assert_allclose(states[:, LEFT_BASE + OFF_GRIPPER], obs[:, 193])
+        np.testing.assert_allclose(actions[:, LEFT_BASE + OFF_GRIPPER], act[:, 14])
+        # torso + chassis state
+        np.testing.assert_allclose(states[:, SHARED_BASE + 6 : SHARED_BASE + 10], obs[:, 236:240])
+        np.testing.assert_allclose(states[:, SHARED_BASE : SHARED_BASE + 3], obs[:, 244:247])
+        np.testing.assert_allclose(states[:, SHARED_BASE + 3 : SHARED_BASE + 6], obs[:, 253:256])
+        # chassis action only first 3 dims filled
+        np.testing.assert_allclose(actions[:, SHARED_BASE : SHARED_BASE + 3], act[:, 0:3])
+        self.assertTrue(np.allclose(actions[:, SHARED_BASE + 3 : SHARED_BASE + 6], 0))
+        # torso action
+        np.testing.assert_allclose(actions[:, SHARED_BASE + 6 : SHARED_BASE + 10], act[:, 3:7])
+        # eef state occupied
+        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
+        self.assertFalse(np.allclose(states[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 3], 0))
 
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")

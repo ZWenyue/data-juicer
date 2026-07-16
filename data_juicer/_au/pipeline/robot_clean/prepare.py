@@ -10,7 +10,7 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-from ...utils.lerobot_episode_io import list_episode_parquets, load_episode_arrays
+from ...utils.lerobot_episode_io import list_episode_parquets, load_episode_arrays, resolve_video_key
 from .config import CleanConfig
 
 
@@ -24,6 +24,10 @@ def build_pointer_jsonl(
     root = Path(dataset).resolve()
     out = Path(output)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    resolved_key = resolve_video_key(str(root), preferred=video_key) or video_key
+    if resolved_key != video_key:
+        logger.info(f"Resolved video_key {video_key!r} → {resolved_key!r}")
 
     files = list_episode_parquets(str(root))
     if not files:
@@ -43,7 +47,7 @@ def build_pointer_jsonl(
                 "text": stem,
                 "parquet_path": str(p.resolve()),
             }
-            vid = root / "videos" / chunk / video_key / f"{stem}.mp4"
+            vid = root / "videos" / chunk / resolved_key / f"{stem}.mp4"
             if vid.is_file():
                 rec["videos"] = [str(vid.resolve())]
                 n_vid += 1
@@ -52,13 +56,13 @@ def build_pointer_jsonl(
     summary = {
         "num_episodes": len(files),
         "num_with_videos": n_vid,
-        "video_key": video_key,
+        "video_key": resolved_key,
         "pointer": str(out),
         "dataset": str(root),
     }
     logger.info(
         f"Pointer JSONL: {summary['num_episodes']} episodes, "
-        f"{n_vid} with videos[{video_key}] -> {out}"
+        f"{n_vid} with videos[{resolved_key}] -> {out}"
     )
     if n_vid == 0:
         logger.warning(
@@ -73,7 +77,11 @@ def compute_embodiment_percentiles(
     embodiment: str,
     max_files: Optional[int] = None,
 ) -> dict:
-    """Compute per-dim q01/q99 for states/actions and write ``{embodiment: ...}`` JSON."""
+    """Compute per-dim q01/q99 for states/actions and write ``{embodiment: ...}`` JSON.
+
+    Arrays are loaded via the embodiment YAML into the Stage1/2/3 clean layout
+    (typically 16-dim arm+gripper), not the raw packed ``observation.state``.
+    """
     root = Path(dataset).resolve()
     files = list_episode_parquets(str(root), max_files=max_files)
     if not files:
@@ -82,7 +90,7 @@ def compute_embodiment_percentiles(
     all_states = []
     all_actions = []
     for i, pf in enumerate(files):
-        states, actions = load_episode_arrays(pf)
+        states, actions = load_episode_arrays(pf, embodiment=embodiment)
         all_states.append(states.astype(np.float32, copy=False))
         all_actions.append(actions.astype(np.float32, copy=False))
         if (i + 1) % 50 == 0 or (i + 1) == len(files):

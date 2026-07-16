@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 批量清洗 Galaxea 多任务 root 下的每个 LeRobot 任务。
-# 已支持布局的体态（r1lite / r1pro）→ 完整流程(含 unified80 + parquet)；
+# 批量清洗 LeRobot 任务（Galaxea / GR00T sim 等）。
+# 已支持布局的体态 → 完整流程(含 unified80 + parquet)；
 # 其它体态 → 仅数值+Check3。
 #
 # 若 ANALYZE_ROOT/<task>/analysis.json 存在，自动使用分析给出的建议旗标；
@@ -11,9 +11,9 @@
 #   bash robot_data_clean.sh
 set -euo pipefail
 
-ROOT="${DATASET_ROOT:-/mnt/r/DATA/Galaxea-Open-World-Dataset/260711}"
-OUT="${OUT_ROOT:-/mnt/r/DATA/Galaxea-Open-World-Dataset/process_clean/260711}"
-ANALYZE_ROOT="${ANALYZE_ROOT:-/mnt/r/DATA/Galaxea-Open-World-Dataset/process_clean/260711_analyze}"
+ROOT="${DATASET_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press}"
+OUT="${OUT_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean}"
+ANALYZE_ROOT="${ANALYZE_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/analyze}"
 PY="${DJ_VENV:-/mnt/r/VENV/dj}/bin/python"
 NP="${NP:-16}"
 # 仅当某任务没有 analysis.json 时使用
@@ -22,11 +22,22 @@ BLUR_TH="${BLUR_TH:-20}"
 cd "$(dirname "$0")"
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
-# robot_type (info.json) → embodiment YAML stem under configs/embodiments/
-embodiment_from_robot_type() {
-  case "$1" in
+# Prefer embodiment.json tag when present (GR00T R1Pro vs Galaxea r1pro).
+embodiment_from_meta() {
+  local info="$1"
+  local emb_json="$(dirname "$info")/embodiment.json"
+  local tag=""
+  if [[ -f "$emb_json" ]]; then
+    tag="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('embodiment_tag') or '')" "$emb_json" 2>/dev/null || true)"
+  fi
+  case "$tag" in
+    sim_behavior_r1_pro|behavior_r1_pro) echo "sim_behavior_r1_pro"; return ;;
+  esac
+  local rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$info")"
+  case "$rt" in
     r1lite|r1_lite) echo "galaxea_r1_lite" ;;
     r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
+    R1Pro)          echo "sim_behavior_r1_pro" ;;
     *)              echo "" ;;
   esac
 }
@@ -51,7 +62,7 @@ for d in "$ROOT"/*/; do
   [[ -d "$d/data" ]] || continue
 
   rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$d/meta/info.json")"
-  emb_name="$(embodiment_from_robot_type "$rt")"
+  emb_name="$(embodiment_from_meta "$d/meta/info.json")"
   if [[ -n "$emb_name" ]]; then
     emb=(--embodiment "$emb_name" --export-unified-parquet)
   else

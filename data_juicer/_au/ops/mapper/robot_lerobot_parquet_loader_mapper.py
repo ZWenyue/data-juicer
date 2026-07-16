@@ -28,6 +28,7 @@ class RobotLeRobotParquetLoaderMapper(Mapper):
         state_key: str = "states",
         action_key: str = "actions",
         skip_if_present: bool = True,
+        embodiment: str = None,
         *args,
         **kwargs,
     ):
@@ -36,6 +37,7 @@ class RobotLeRobotParquetLoaderMapper(Mapper):
         self.state_key = state_key
         self.action_key = action_key
         self.skip_if_present = skip_if_present
+        self.embodiment = embodiment
 
     def process_single(self, sample):
         if self.skip_if_present and self.state_key in sample and self.action_key in sample:
@@ -43,7 +45,7 @@ class RobotLeRobotParquetLoaderMapper(Mapper):
         ppath = sample.get(self.parquet_field)
         if not ppath:
             raise ValueError(f"Sample missing '{self.parquet_field}' for parquet loading")
-        states, actions = load_episode_arrays(ppath)
+        states, actions = load_episode_arrays(ppath, embodiment=self.embodiment)
         sample[self.state_key] = states.tolist()
         sample[self.action_key] = actions.tolist()
         sample["num_frames"] = int(states.shape[0])

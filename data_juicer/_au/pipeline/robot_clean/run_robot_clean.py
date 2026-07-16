@@ -32,6 +32,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from ...utils.lerobot_episode_io import resolve_video_key
 from .config import CleanConfig
 from .export_unified import export_kept_unified_parquets
 from .prepare import prepare
@@ -211,6 +212,12 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Stage1 episode-level max flagged frame ratio (default 0.3)",
     )
     gn.add_argument(
+        "--s1-max-run-length",
+        type=int,
+        default=None,
+        help="Stage1 max consecutive flagged frames before episode discard (default 10)",
+    )
+    gn.add_argument(
         "--s2-da-threshold",
         type=float,
         default=None,
@@ -262,11 +269,15 @@ def main(argv=None) -> int:
         logger.error(f"--dataset must be a LeRobot task dir with data/: {dataset}")
         return 2
 
+    video_key = resolve_video_key(str(dataset), preferred=args.video_key) or args.video_key
+    if video_key != args.video_key:
+        logger.info(f"Resolved video_key {args.video_key!r} → {video_key!r}")
+
     cfg_kwargs = dict(
         dataset=str(dataset.resolve()),
         output_dir=str(Path(args.output).resolve()),
         embodiment=args.embodiment,
-        video_key=args.video_key,
+        video_key=video_key,
         max_episodes=args.max_episodes,
         np=args.np,
         executor_type=args.executor_type,
@@ -287,6 +298,7 @@ def main(argv=None) -> int:
     # CleanConfig defaults remain the single source of truth otherwise.
     optional_overrides = {
         "s1_max_flagged_ratio": args.s1_max_flagged_ratio,
+        "s1_max_run_length": args.s1_max_run_length,
         "s2_da_threshold": args.s2_da_threshold,
         "s3_alpha": args.s3_alpha,
         "check3_max_keyframe_overlap": args.check3_max_keyframe_overlap,

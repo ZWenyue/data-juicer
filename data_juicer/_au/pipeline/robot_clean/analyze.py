@@ -24,7 +24,11 @@ from data_juicer import _au  # noqa: F401  (triggers operator registration)
 from data_juicer.ops.base_op import OPERATORS
 from data_juicer.utils.constant import Fields
 
-from ...utils.lerobot_episode_io import list_episode_parquets, load_episode_arrays
+from ...utils.lerobot_episode_io import (
+    list_episode_parquets,
+    load_episode_arrays,
+    resolve_video_key,
+)
 from .config import CleanConfig
 from .prepare import compute_embodiment_percentiles
 from .recipe import read_source_fps
@@ -98,7 +102,7 @@ def collect_numeric_stats(
 
     rows: List[Dict[str, Any]] = []
     for pf in files:
-        states, actions = load_episode_arrays(pf)
+        states, actions = load_episode_arrays(pf, embodiment=cfg.embodiment)
         sample = {
             "states": states.tolist(),
             "actions": actions.tolist(),
@@ -126,6 +130,8 @@ def suggest_numeric(
     ev = np.array([r["stats"]["extreme_value_flagged_ratio"] for r in rows], dtype=float)
 
     max_flagged_ratio = float(np.clip(np.percentile(ratio, TARGET_KEEP * 100), 0.05, 0.5))
+    # Keep ~TARGET_KEEP of episodes on the max-run gate; floor at the caller's default.
+    suggested_max_run = int(max(s1_max_run_length, np.ceil(np.percentile(max_run, TARGET_KEEP * 100))))
 
     da_table = []
     best_da, best_score = DA_CANDIDATES[0], None
@@ -153,7 +159,7 @@ def suggest_numeric(
         )
 
     # Per-episode reject under suggested thresholds + episode_discard.
-    s1_rej = (ratio > max_flagged_ratio) | (max_run > s1_max_run_length)
+    s1_rej = (ratio > max_flagged_ratio) | (max_run > suggested_max_run)
     s2_rej = min_da < best_da
     s3_rej = ev > float(s3_max_flagged_ratio)
     numeric_union = s1_rej | s2_rej | s3_rej
@@ -161,6 +167,7 @@ def suggest_numeric(
     return {
         "n_episodes": n,
         "max_flagged_ratio": round(max_flagged_ratio, 4),
+        "max_run_length": int(suggested_max_run),
         "da_threshold": best_da,
         "alpha": alpha,
         "s3_max_flagged_ratio": float(s3_max_flagged_ratio),
@@ -335,7 +342,15 @@ def analyze_task(
 ) -> Dict[str, Any]:
     out_dir = Path(output)
     out_dir.mkdir(parents=True, exist_ok=True)
-    cfg = CleanConfig(dataset=dataset, output_dir=output, embodiment=embodiment, video_key=video_key)
+    resolved_video_key = resolve_video_key(dataset, preferred=video_key) or video_key
+    if resolved_video_key != video_key:
+        logger.info(f"[video] resolved video_key {video_key!r} → {resolved_video_key!r}")
+    cfg = CleanConfig(
+        dataset=dataset,
+        output_dir=output,
+        embodiment=embodiment,
+        video_key=resolved_video_key,
+    )
 
     files = list_episode_parquets(dataset)
     if not files:
@@ -343,7 +358,7 @@ def analyze_task(
     if max_episodes is not None:
         files = files[: int(max_episodes)]
 
-    logger.info(f"[numeric] scanning {len(files)} episodes...")
+    logger.info(f"[numeric] scanning {len(files)} episodes (embodiment={embodiment})...")
     pct_path = str(out_dir / "percentiles.json")
     compute_embodiment_percentiles(dataset, pct_path, embodiment, max_files=max_episodes)
     rows = collect_numeric_stats(files, cfg, pct_path, probe_alpha)
@@ -357,10 +372,12 @@ def analyze_task(
     result: Dict[str, Any] = {
         "dataset": str(Path(dataset).resolve()),
         "embodiment": embodiment,
+        "video_key": resolved_video_key,
         "num_episodes": len(files),
         "numeric": numeric,
         "suggested_clean_flags": {
             "--s1-max-flagged-ratio": numeric["max_flagged_ratio"],
+            "--s1-max-run-length": numeric["max_run_length"],
             "--s2-da-threshold": numeric["da_threshold"],
             "--s3-alpha": numeric["alpha"],
         },
@@ -368,9 +385,9 @@ def analyze_task(
 
     check3_drop = None
     if analyze_video:
-        vfiles = _list_videos(dataset, files, video_key)
+        vfiles = _list_videos(dataset, files, resolved_video_key)
         if not vfiles:
-            logger.warning(f"[video] no videos for key {video_key}; skipping video probe")
+            logger.warning(f"[video] no videos for key {resolved_video_key}; skipping video probe")
             result["video"] = {"n_videos_decoded": 0, "reason": "no_video_key"}
         else:
             vfiles = vfiles[: int(probe_video_episodes)]
@@ -517,6 +534,8 @@ def _write_markdown(result: Dict[str, Any], path: Path) -> None:
     p = num["s1_ratio_pcts"]
     lines.append(f"flagged_ratio: p50={p['p50']:.3f} p90={p['p90']:.3f} max={p['max']:.3f}\n\n")
     lines.append(f"**建议 `--s1-max-flagged-ratio {num['max_flagged_ratio']}`**\n")
+    if num.get("max_run_length") is not None:
+        lines.append(f"**建议 `--s1-max-run-length {num['max_run_length']}`**\n")
 
     lines.append("\n## Stage2 状态-动作对齐\n")
     lines.append("| da_threshold | drop_frac |\n|---|---|\n")

@@ -1,0 +1,92 @@
+# GR00T / BEHAVIOR-1K sim R1 Pro (packed LeRobot) → Qwen-RobotManip 80-dim layout
+#
+# Data layout (see meta/modality.json):
+#   observation.state : float64[256] packed proprio
+#   action           : float32[23]  packed command
+#
+# Arm joints j1..j7 are identity-mapped into canonical slots (same as galaxea_r1_pro):
+#   slot0 shoulder_pitch ← j1
+#   slot1 shoulder_roll  ← j2
+#   slot2 shoulder_yaw   ← j3
+#   slot3 elbow_pitch    ← j4
+#   slot4 forearm_roll   ← j5
+#   slot5 wrist_pitch    ← j6
+#   slot6 wrist_roll     ← j7
+#
+# Verified against:
+#   /mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press/sim_behavior_r1_pro.task-0000_turning_on_radio
+#   robot_type=R1Pro, embodiment_tag=sim_behavior_r1_pro
+#
+# Slices below are half-open [start, end) into the packed columns.
+name: sim_behavior_r1_pro
+
+arms:
+  left:
+    joint_map:
+      shoulder_pitch: 0
+      shoulder_roll: 1
+      shoulder_yaw: 2
+      elbow_pitch: 3
+      forearm_roll: 4
+      wrist_pitch: 5
+      wrist_roll: 6
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [158, 165]   # arm_left_qpos
+      action_column: action
+      action_slice: [7, 14]     # left_arm
+    gripper:
+      # state gripper is 2-DoF finger qpos; unified uses first dim.
+      state_column: observation.state
+      state_slice: [193, 195]   # gripper_left_qpos
+      action_column: action
+      action_slice: [14, 15]    # left_gripper
+    eef:
+      # eef_left_pos[186:189] + eef_left_quat[189:193] → xyz + quat
+      state_column: observation.state
+      state_slice: [186, 193]
+      rot_repr: quat_wxyz       # Isaac / GR00T scalar-first
+    hand: null
+  right:
+    joint_map:
+      shoulder_pitch: 0
+      shoulder_roll: 1
+      shoulder_yaw: 2
+      elbow_pitch: 3
+      forearm_roll: 4
+      wrist_pitch: 5
+      wrist_roll: 6
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [197, 204]   # arm_right_qpos
+      action_column: action
+      action_slice: [15, 22]    # right_arm
+    gripper:
+      state_column: observation.state
+      state_slice: [232, 234]   # gripper_right_qpos
+      action_column: action
+      action_slice: [22, 23]    # right_gripper
+    eef:
+      state_column: observation.state
+      state_slice: [225, 232]   # eef_right_pos + eef_right_quat
+      rot_repr: quat_wxyz
+    hand: null
+
+shared:
+  # chassis state: base_qpos[244:247] + base_qvel[253:256] → 6D
+  # chassis action: base[0:3] only (pad last 3 slots)
+  chassis:
+    state_column: observation.state
+    state_source_indices: [244, 245, 246, 253, 254, 255]
+    action_column: action
+    action_source_indices: [0, 1, 2, null, null, null]
+    slots: [0, 1, 2, 3, 4, 5]
+  # torso / trunk: trunk_qpos[236:240], action torso[3:7]
+  torso:
+    state_column: observation.state
+    state_source_indices: [236, 237, 238, 239]
+    action_column: action
+    action_source_indices: [3, 4, 5, 6]
+    slots: [6, 7, 8, 9]
