@@ -6,7 +6,7 @@
 #   OUT/<task>/meta/info.json
 #
 # Each parquet frame has:
-#   observation.state[80], action[80], observation.state_dim_mask[80]
+#   observation.state[80], action[80], action_dim_mask[80]
 #   (+ timestamp / frame_index / episode_index / ... when present)
 #
 # Examples:
@@ -81,17 +81,19 @@ assert any(k.startswith("observation.images.") for k in info["features"])
 files = sorted(glob.glob(os.path.join(task, "data", "chunk-*", "episode_*.parquet")))
 assert files, f"no episode parquet under {task}"
 t = pq.read_table(files[0])
-for col in ("observation.state", "action", "observation.state_dim_mask"):
+for col in ("observation.state", "action", "action_dim_mask"):
     assert col in t.column_names, f"missing {col}"
 s0 = np.asarray(t.column("observation.state")[0].as_py(), dtype=float)
-m0 = np.asarray(t.column("observation.state_dim_mask")[0].as_py(), dtype=float)
+m0 = np.asarray(t.column("action_dim_mask")[0].as_py(), dtype=float)
 assert s0.shape == (80,)
-assert np.allclose(s0[m0 == 0], 0)
+# padding action dims should be zero under the action mask
+a0 = np.asarray(t.column("action")[0].as_py(), dtype=float)
+assert np.allclose(a0[m0 == 0], 0)
 n_ep = sum(1 for _ in open(os.path.join(meta, "episodes.jsonl")) if _.strip())
 print(f"task={tasks[0]}")
 print(f"layout=data/+meta/+videos(symlink)  episodes.jsonl={n_ep}  parquet_files={len(files)}")
 print(f"videos -> {os.readlink(os.path.join(task, 'videos')) if os.path.islink(os.path.join(task,'videos')) else '(dir)'}")
 print(f"sample={files[0]}")
-print(f"rows={t.num_rows} state_dim=80 mask_active={int(m0.sum())}/80")
+print(f"rows={t.num_rows} state_dim=80 action_mask_active={int(m0.sum())}/80")
 print("EXPORT PARQUET OK")
 PY

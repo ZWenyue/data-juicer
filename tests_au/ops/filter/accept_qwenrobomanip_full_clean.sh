@@ -153,8 +153,8 @@ for r in rows:
         errors.append(f"{ep}: unified_states shape {s.shape}")
     elif a.shape != s.shape or m.shape != s.shape:
         errors.append(f"{ep}: unified shape mismatch")
-    elif int(m[0].sum()) != 42:
-        errors.append(f"{ep}: expected 42 active dims, got {int(m[0].sum())}")
+    elif int(m[0].sum()) != 24:
+        errors.append(f"{ep}: expected 24 active action dims, got {int(m[0].sum())}")
     # Kept rows must pass episode gate
     if not stats.get("video_quality_episode_keep", False):
         errors.append(f"{ep}: kept but video_quality_episode_keep=False")
@@ -167,7 +167,7 @@ if errors:
         print(f"  ... and {len(errors) - 40} more", file=sys.stderr)
     sys.exit(1)
 
-print("Stage1/2/3 + Check3 stats/meta present; unified 80-dim OK (mask_active=42).")
+print("Stage1/2/3 + Check3 stats/meta present; unified 80-dim OK (action_mask_active=24).")
 print("ACCEPTANCE PASSED (JSONL clean + 80-dim)")
 PYEOF
 
@@ -234,7 +234,7 @@ for r in rows:
             **keep_cols,
             "observation.state": [row.tolist() for row in states],
             "action": [row.tolist() for row in actions],
-            "observation.state_dim_mask": [row.tolist() for row in dim_mask],
+            "action_dim_mask": [row.tolist() for row in dim_mask],
         }
     )
     pq.write_table(table, dst)

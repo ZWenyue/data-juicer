@@ -73,6 +73,45 @@ def load_embodiment_config(name_or_path: Union[str, Path]) -> Dict[str, Any]:
     return cfg
 
 
+def _packed_signal_dim(df) -> Optional[int]:
+    """Return last-dim of packed observation.state (preferred) or action."""
+    for col in ("observation.state", "action"):
+        if col not in df.columns or len(df) == 0:
+            continue
+        arr = np.asarray(df[col].iloc[0], dtype=float).reshape(-1)
+        return int(arr.shape[0])
+    return None
+
+
+def apply_packed_variant(cfg: Dict[str, Any], df) -> Dict[str, Any]:
+    """Return cfg with ``packed_variants[<dim>]`` arm overrides merged in.
+
+    Used when one embodiment ships multiple packed widths (e.g. RoboCOIN
+    Cobot Magic 14-D without EEF vs 26-D with EEF). No-op if no variants.
+    """
+    import copy
+
+    variants = cfg.get("packed_variants") or {}
+    if not variants:
+        return cfg
+    dim = _packed_signal_dim(df)
+    if dim is None:
+        return cfg
+    keyed = {int(k): v for k, v in variants.items()}
+    override = keyed.get(dim)
+    if override is None:
+        return cfg
+    out = copy.deepcopy(cfg)
+    for side, arm_over in ((override.get("arms") or {}).items()):
+        if side not in _ARM_KEYS or not isinstance(arm_over, dict):
+            continue
+        dst = out.setdefault("arms", {}).setdefault(side, {})
+        for k, v in arm_over.items():
+            dst[k] = v
+    out["_packed_dim"] = dim
+    return out
+
+
 def _validate_embodiment_config(cfg: Dict[str, Any]) -> None:
     arms = cfg.get("arms")
     if not isinstance(arms, dict) or not arms:
@@ -151,20 +190,49 @@ def quat_wxyz_to_rot6d(quat: np.ndarray) -> np.ndarray:
     return np.stack([r00, r10, r20, r01, r11, r21], axis=-1)
 
 
+def _rotmat_to_rot6d(R: np.ndarray) -> np.ndarray:
+    """(T, 3, 3) rotation matrices → (T, 6) first two columns."""
+    return np.concatenate([R[:, :, 0], R[:, :, 1]], axis=-1)
+
+
+def euler_xyz_to_rot6d(euler: np.ndarray) -> np.ndarray:
+    """Intrinsic xyz Euler (radians) → Zhou et al. 6D rotation.
+
+    euler : (..., 3)
+    returns : (..., 6)
+    """
+    from scipy.spatial.transform import Rotation
+
+    e = np.asarray(euler, dtype=float)
+    if e.shape[-1] != 3:
+        raise ValueError(f"euler last dim must be 3, got {e.shape}")
+    flat = e.reshape(-1, 3)
+    R = Rotation.from_euler("xyz", flat).as_matrix()
+    return _rotmat_to_rot6d(R).reshape(e.shape[:-1] + (6,))
+
+
 def ee_pose_to_9d(ee_pose: np.ndarray, rot_repr: str = "quat_wxyz") -> np.ndarray:
     """Pack EE pose into (T, 9) = xyz(3) + rot6d(6)."""
     arr = np.asarray(ee_pose, dtype=float)
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
-    if arr.shape[-1] < 7:
-        raise ValueError(f"ee_pose expected last dim >= 7 (xyz+quat), got {arr.shape}")
     pos = arr[:, :3]
     if rot_repr == "quat_wxyz":
+        if arr.shape[-1] < 7:
+            raise ValueError(f"ee_pose expected last dim >= 7 (xyz+quat), got {arr.shape}")
         rot6 = quat_wxyz_to_rot6d(arr[:, 3:7])
     elif rot_repr == "quat_xyzw":
+        if arr.shape[-1] < 7:
+            raise ValueError(f"ee_pose expected last dim >= 7 (xyz+quat), got {arr.shape}")
         q = arr[:, 3:7]
         rot6 = quat_wxyz_to_rot6d(np.concatenate([q[:, 3:4], q[:, :3]], axis=-1))
+    elif rot_repr == "euler_xyz":
+        if arr.shape[-1] < 6:
+            raise ValueError(f"ee_pose expected last dim >= 6 (xyz+euler), got {arr.shape}")
+        rot6 = euler_xyz_to_rot6d(arr[:, 3:6])
     elif rot_repr == "rot6d":
+        if arr.shape[-1] < 9:
+            raise ValueError(f"ee_pose expected last dim >= 9 (xyz+rot6d), got {arr.shape}")
         rot6 = arr[:, 3:9]
     else:
         raise ValueError(f"Unsupported rot_repr: {rot_repr}")
@@ -213,7 +281,11 @@ def _column_with_selection(
 
 
 def build_dim_mask(cfg: Dict[str, Any]) -> np.ndarray:
-    """Build static occupancy mask (80,) from embodiment config (no data needed)."""
+    """Build static layout occupancy (80,) from embodiment config (state+action declared).
+
+    Prefer :func:`build_action_dim_mask` for training ``loss × mask``; this helper
+    remains for layout audits that include state-only groups (e.g. EEF pose).
+    """
     mask = np.zeros(UNIFIED_DIM, dtype=float)
     arms = cfg.get("arms") or {}
     for side, base in _ARM_BASE.items():
@@ -244,6 +316,70 @@ def build_dim_mask(cfg: Dict[str, Any]) -> np.ndarray:
             if not (0 <= si < SHARED_DIM):
                 raise ValueError(f"shared slot {si} out of range [0,{SHARED_DIM})")
             mask[SHARED_BASE + si] = 1.0
+    return mask
+
+
+def _block_has_action_source(block: Optional[Dict[str, Any]]) -> bool:
+    if not block:
+        return False
+    return bool(block.get("action_column") or block.get("action_columns"))
+
+
+def build_action_dim_mask(cfg: Dict[str, Any]) -> np.ndarray:
+    """Build static action occupancy (80,) for training loss masking.
+
+    Only marks dims with action sources declared in YAML. State-only groups
+    (typical EEF pose) and ``null`` entries in ``action_source_indices`` stay 0.
+    Episode packing may further clear dims whose action columns are missing.
+    """
+    mask = np.zeros(UNIFIED_DIM, dtype=float)
+    arms = cfg.get("arms") or {}
+    for side, base in _ARM_BASE.items():
+        arm = arms.get(side)
+        if not arm:
+            continue
+        src = arm.get("source") or {}
+        if src.get("action_column"):
+            jm = arm.get("joint_map") or {}
+            for i, name in enumerate(CANONICAL_JOINT_NAMES):
+                if jm.get(name) is not None:
+                    mask[base + OFF_JOINT + i] = 1.0
+        grip = arm.get("gripper")
+        if _block_has_action_source(grip):
+            mask[base + OFF_GRIPPER] = 1.0
+        eef = arm.get("eef")
+        if _block_has_action_source(eef):
+            mask[base + OFF_EEF : base + OFF_EEF + NUM_EEF] = 1.0
+        hand = arm.get("hand")
+        if hand and hand.get("action_column"):
+            n = int(hand.get("num_joints", NUM_HAND))
+            n = min(n, NUM_HAND)
+            mask[base + OFF_HAND : base + OFF_HAND + n] = 1.0
+    shared = cfg.get("shared") or {}
+    for _name, block in shared.items():
+        if not block or not _block_has_action_source(block):
+            continue
+        slots = [int(s) for s in (block.get("slots") or [])]
+        if not slots:
+            continue
+        src_idx = block.get("action_source_indices")
+        if src_idx is None:
+            for si in slots:
+                if not (0 <= si < SHARED_DIM):
+                    raise ValueError(f"shared slot {si} out of range [0,{SHARED_DIM})")
+                mask[SHARED_BASE + si] = 1.0
+        else:
+            if len(src_idx) != len(slots):
+                raise ValueError(
+                    f"shared {_name}: action_source_indices len {len(src_idx)} "
+                    f"!= slots len {len(slots)}"
+                )
+            for si, s_i in zip(slots, src_idx):
+                if s_i is None:
+                    continue
+                if not (0 <= si < SHARED_DIM):
+                    raise ValueError(f"shared slot {si} out of range [0,{SHARED_DIM})")
+                mask[SHARED_BASE + si] = 1.0
     return mask
 
 
@@ -303,7 +439,7 @@ def _fill_arm_block(
             pose9 = ee_pose_to_9d(e_arr, eef.get("rot_repr", "quat_wxyz"))
             out[:, base + OFF_EEF : base + OFF_EEF + NUM_EEF] = pose9
             mask_frame[base + OFF_EEF : base + OFF_EEF + NUM_EEF] = 1.0
-    # action EEF deferred (camera-frame delta)
+    # action EEF (e.g. camera-frame delta) deferred until action sources are defined
 
     hand = arm_cfg.get("hand")
     if hand:
@@ -360,7 +496,7 @@ def _fill_shared(
             continue
         arr = _resolve_shared_array(block, df, which)
         if arr is None:
-            # occupancy still marked via build_dim_mask; values stay 0
+            # missing columns → leave values/mask at 0 (do not invent occupancy)
             continue
         src_idx = block.get(idx_key)
         if src_idx is None:
@@ -385,14 +521,15 @@ def _fill_shared(
 
 
 def pack_episode_to_80(df, cfg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Pack one episode dataframe into unified (states, actions, dim_mask).
+    """Pack one episode dataframe into unified (states, actions, action_dim_mask).
 
     Returns
     -------
     states : (T, 80)
     actions : (T, 80)
-    dim_mask : (T, 80) broadcast of occupancy (1 = used)
+    action_dim_mask : (T, 80) action occupancy (1 = supervised action dim for loss)
     """
+    cfg = apply_packed_variant(cfg, df)
     # Determine T from any present column referenced by the config
     T = None
     for side in _ARM_KEYS:
@@ -409,25 +546,24 @@ def pack_episode_to_80(df, cfg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray,
 
     states = np.zeros((T, UNIFIED_DIM), dtype=float)
     actions = np.zeros((T, UNIFIED_DIM), dtype=float)
-    # Occupancy from config (shared by state/action); values may be 0 when a
-    # semantic group is declared but action-side fill is deferred (e.g. EEF).
-    scratch = np.zeros(UNIFIED_DIM, dtype=float)
+    # Separate occupancy trackers: returned mask is action-only (for loss × mask).
+    state_occ = np.zeros(UNIFIED_DIM, dtype=float)
+    action_occ = np.zeros(UNIFIED_DIM, dtype=float)
 
     arms = cfg.get("arms") or {}
     for side, base in _ARM_BASE.items():
         arm = arms.get(side)
         if not arm:
             continue
-        _fill_arm_block(states, scratch, base, arm, df, "state")
-        _fill_arm_block(actions, scratch, base, arm, df, "action")
+        _fill_arm_block(states, state_occ, base, arm, df, "state")
+        _fill_arm_block(actions, action_occ, base, arm, df, "action")
 
     shared = cfg.get("shared") or {}
-    _fill_shared(states, scratch, shared, df, "state")
-    _fill_shared(actions, scratch, shared, df, "action")
+    _fill_shared(states, state_occ, shared, df, "state")
+    _fill_shared(actions, action_occ, shared, df, "action")
 
-    static = build_dim_mask(cfg)
-    dim_mask = np.broadcast_to(static.reshape(1, -1), (T, UNIFIED_DIM)).copy()
-    return states, actions, dim_mask
+    action_dim_mask = np.broadcast_to(action_occ.reshape(1, -1), (T, UNIFIED_DIM)).copy()
+    return states, actions, action_dim_mask
 
 
 def resolve_parquet_path(sample: Dict[str, Any], parquet_field: str = "parquet_path") -> str:

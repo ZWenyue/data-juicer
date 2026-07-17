@@ -3,7 +3,7 @@
 #
 # 输出（与 tests_au/ops/mapper/export_unified_to_process_test.sh 一致）：
 #   OUT/<task>/
-#     data/chunk-XXX/episode_YYYYYY.parquet   # observation.state/action/mask 各 80 维
+#     data/chunk-XXX/episode_YYYYYY.parquet   # observation.state/action/action_dim_mask 各 80 维
 #     meta/{info.json,episodes.jsonl,tasks.jsonl,episodes_stats.jsonl}
 #     videos -> 源 videos（symlink）
 #
@@ -15,10 +15,11 @@ set -euo pipefail
 CLEAN_ROOT="${CLEAN_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean}"
 SRC_ROOT="${DATASET_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press}"
 OUT="${OUT_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/unified80}"
-PY="${DJ_VENV:-/mnt/r/VENV/dj}/bin/python"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${DJ_VENV:-$REPO_ROOT/.venv}/bin/python"
 
-cd "$(dirname "$0")"
-export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "$OUT"
 
 # robot_type / embodiment_tag → YAML stem under configs/embodiments/
@@ -31,12 +32,14 @@ embodiment_from_meta() {
   fi
   case "$tag" in
     sim_behavior_r1_pro|behavior_r1_pro) echo "sim_behavior_r1_pro"; return ;;
+    agilex_cobot_magic|agilex_cobot_decoupled_magic) echo "agilex_cobot_magic"; return ;;
   esac
   local rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$info" 2>/dev/null || echo "")"
   case "$rt" in
     r1lite|r1_lite) echo "galaxea_r1_lite" ;;
     r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
     R1Pro)          echo "sim_behavior_r1_pro" ;;
+    agilex_cobot_decoupled_magic|agilex_cobot_magic) echo "agilex_cobot_magic" ;;
     *)              echo "" ;;
   esac
 }

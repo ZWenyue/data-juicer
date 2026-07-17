@@ -1,0 +1,108 @@
+# RoboCOIN / Agilex Cobot Magic (decoupled) → Qwen-RobotManip 80-dim unified layout
+#
+# Same robot_type can ship two packed widths (verified under RoboCOIN):
+#   14-D (default below): arm+gripper only
+#     [0:6] left_arm  [6] left_grip  [7:13] right_arm  [13] right_grip
+#   26-D (packed_variants.26): arm+gripper+eef interleaved
+#     [0:6] left_arm  [6] left_grip  [7:13] left_eef(xyz+euler)
+#     [13:19] right_arm  [19] right_grip  [20:26] right_eef
+#
+# 6-DoF arm → canonical slots (same remap as galaxea_r1_lite; no shoulder_roll):
+#   slot0 shoulder_pitch ← j2
+#   slot1 shoulder_roll  ← pad
+#   slot2 shoulder_yaw   ← j1
+#   slot3 elbow_pitch    ← j3
+#   slot4 forearm_roll   ← j5
+#   slot5 wrist_pitch    ← j4
+#   slot6 wrist_roll     ← j6
+#
+# Verified against:
+#   /mnt/r/DATA/pre_train_v1/RoboCOIN/Cobot_Magic_clean_up_the_tableware  (14-D)
+#   /mnt/r/DATA/pre_train_v1/RoboCOIN/Cobot_Magic_move_plate              (26-D)
+#   robot_type=agilex_cobot_decoupled_magic
+#
+# No chassis / torso → shared region stays empty.
+name: agilex_cobot_magic
+
+arms:
+  left:
+    joint_map:
+      shoulder_pitch: 1   # j2
+      shoulder_roll: null # pad (no DoF)
+      shoulder_yaw: 0     # j1
+      elbow_pitch: 2      # j3
+      forearm_roll: 4     # j5
+      wrist_pitch: 3      # j4
+      wrist_roll: 5       # j6
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [0, 6]
+      action_column: action
+      action_slice: [0, 6]
+    gripper:
+      state_column: observation.state
+      state_slice: [6, 7]
+      action_column: action
+      action_slice: [6, 7]
+    eef: null
+    hand: null
+  right:
+    joint_map:
+      shoulder_pitch: 1   # j2
+      shoulder_roll: null # pad (no DoF)
+      shoulder_yaw: 0     # j1
+      elbow_pitch: 2      # j3
+      forearm_roll: 4     # j5
+      wrist_pitch: 3      # j4
+      wrist_roll: 5       # j6
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [7, 13]
+      action_column: action
+      action_slice: [7, 13]
+    gripper:
+      state_column: observation.state
+      state_slice: [13, 14]
+      action_column: action
+      action_slice: [13, 14]
+    eef: null
+    hand: null
+
+shared: {}
+
+# Applied when observation.state / action last-dim matches the key.
+packed_variants:
+  26:
+    arms:
+      left:
+        source:
+          state_column: observation.state
+          state_slice: [0, 6]
+          action_column: action
+          action_slice: [0, 6]
+        gripper:
+          state_column: observation.state
+          state_slice: [6, 7]
+          action_column: action
+          action_slice: [6, 7]
+        eef:
+          state_column: observation.state
+          state_slice: [7, 13]   # xyz(3) + euler_xyz(3)
+          rot_repr: euler_xyz
+      right:
+        source:
+          state_column: observation.state
+          state_slice: [13, 19]
+          action_column: action
+          action_slice: [13, 19]
+        gripper:
+          state_column: observation.state
+          state_slice: [19, 20]
+          action_column: action
+          action_slice: [19, 20]
+        eef:
+          state_column: observation.state
+          state_slice: [20, 26]
+          rot_repr: euler_xyz

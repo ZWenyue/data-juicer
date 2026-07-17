@@ -158,7 +158,7 @@ def episode_arrays_from_embodiment(
     - Else extract left/right arm+gripper via yaml ``source`` / ``*_slice``.
     - Else if ``observation.state`` is already 16-dim, use as-is.
     """
-    from .embodiment_layout import load_embodiment_config
+    from .embodiment_layout import apply_packed_variant, load_embodiment_config
 
     if _has_decomposed(df):
         return episode_arrays_from_df(df)
@@ -167,8 +167,10 @@ def episode_arrays_from_embodiment(
         cfg = embodiment
     else:
         cfg = load_embodiment_config(embodiment)
+    cfg = apply_packed_variant(cfg, df)
 
     arms = cfg.get("arms") or {}
+    slice_err = None
     if "left" in arms and "right" in arms:
         try:
             la, lg = _arm_gripper_from_cfg(df, arms["left"], "state")
@@ -178,18 +180,19 @@ def episode_arrays_from_embodiment(
             states = pack_decomposed_to_16(la, lg, ra, rg)
             actions = pack_decomposed_to_16(la_a, lg_a, ra_a, rg_a)
             return states, actions
-        except ValueError:
-            pass
+        except ValueError as e:
+            slice_err = e
 
     if _has_unified(df):
         states, actions = episode_arrays_from_df(df)
         if _is_clean_signal_dim(states) and _is_clean_signal_dim(actions):
             return states, actions
+        detail = f" slice_error={slice_err}" if slice_err is not None else ""
         raise ValueError(
             f"Embodiment {cfg.get('name', embodiment)!r} could not slice arm/gripper, "
             f"and observation.state/action are not 16-dim "
             f"(got state={states.shape}, action={actions.shape}). "
-            "Check embodiment YAML source/slice fields."
+            f"Check embodiment YAML source/slice fields / packed_variants.{detail}"
         )
 
     raise ValueError(

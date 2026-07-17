@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Map heterogeneous LeRobot episode columns into 80-dim unified state/action + dim mask."""
+"""Map heterogeneous LeRobot episode columns into 80-dim unified state/action + action dim mask."""
 
 from __future__ import annotations
 
@@ -25,11 +25,13 @@ OP_NAME = "robot_unified_state_mapper"
 @TAGGING_OPS.register_module(OP_NAME)
 @OPERATORS.register_module(OP_NAME)
 class RobotUnifiedStateMapper(Mapper):
-    """Pack embodiment-specific columns into unified ``(T, 80)`` vectors + occupancy mask.
+    """Pack embodiment-specific columns into unified ``(T, 80)`` vectors + action mask.
 
     Reads ``parquet_path``, applies the embodiment YAML (canonical 7-joint map,
     EE pose quat→6D, shared chassis/torso slots), and writes top-level sample keys
-    so exporters persist vectors and mask together.
+    so exporters persist vectors and **action** occupancy mask together (for
+    ``loss × mask``). State-only dims (e.g. EEF pose) are packed into
+    ``unified_states`` but stay 0 in the mask.
 
     Registered as a tagging OP so ``dj-analyze`` runs it before Filter stats when
     placed early in the recipe (typically right after the parquet loader).
@@ -83,8 +85,8 @@ class RobotUnifiedStateMapper(Mapper):
             raise ValueError(
                 f"Expected last dim {UNIFIED_DIM}, got states={states.shape} actions={actions.shape}"
             )
-        if dim_mask.shape != states.shape:
-            raise ValueError(f"dim_mask shape {dim_mask.shape} != states {states.shape}")
+        if dim_mask.shape != actions.shape:
+            raise ValueError(f"action_dim_mask shape {dim_mask.shape} != actions {actions.shape}")
 
         sample[self.state_key] = states.tolist()
         sample[self.action_key] = actions.tolist()
@@ -95,13 +97,14 @@ class RobotUnifiedStateMapper(Mapper):
         if self.write_meta_occupancy:
             if Fields.meta not in sample or sample[Fields.meta] is None:
                 sample[Fields.meta] = {}
-            # compact (80,) audit copy
+            # compact (80,) audit copy — action occupancy for loss masking
             occ = dim_mask[0].astype(int).tolist() if len(dim_mask) else []
             sample[Fields.meta][self.meta_occupancy_field] = json.dumps(
                 {
                     "dim": UNIFIED_DIM,
                     "occupancy": occ,
                     "num_active": int(sum(occ)),
+                    "mask_kind": "action",
                     "embodiment": self._cfg.get("name", self.embodiment),
                     "config_path": self._cfg.get("_config_path"),
                 }

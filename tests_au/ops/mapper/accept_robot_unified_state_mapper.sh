@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Acceptance: Galaxea parquet → 80-dim unified_states/actions + unified_dim_mask on export.
+# Acceptance: Galaxea parquet → 80-dim unified_states/actions + action dim mask on export.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -84,9 +84,9 @@ for r in rows:
     # active joints present (skip pad slot 1)
     if np.allclose(s[:, [0, 2, 3, 4, 5, 6]], 0):
         errors.append(f"{ep}: left joints unexpectedly all zero")
-    # Galaxea occupancy
-    if int(m[0].sum()) != 42:
-        errors.append(f"{ep}: expected 42 active dims, got {int(m[0].sum())}")
+    # Galaxea action occupancy: (6 joints + 1 grip)*2 + chassis6 + torso4 = 24
+    if int(m[0].sum()) != 24:
+        errors.append(f"{ep}: expected 24 active action dims, got {int(m[0].sum())}")
     # 16-dim native still present from loader
     if "states" in r and len(r["states"][0]) != 16:
         errors.append(f"{ep}: native states not 16-dim")
@@ -96,14 +96,16 @@ for r in rows:
         errors.append(f"{ep}: missing meta unified_dim_occupancy")
     else:
         occ = json.loads(occ) if isinstance(occ, str) else occ
-        if occ.get("num_active") != 42:
+        if occ.get("num_active") != 24:
             errors.append(f"{ep}: meta num_active={occ.get('num_active')}")
+        if occ.get("mask_kind") not in (None, "action"):
+            errors.append(f"{ep}: meta mask_kind={occ.get('mask_kind')}")
 
 if errors:
     for e in errors:
         print("  FAIL:", e, file=sys.stderr)
     sys.exit(1)
 
-print(f"shapes ok: states={s.shape}, mask_active={int(m[0].sum())}/80")
+print(f"shapes ok: states={s.shape}, mask_active={int(m[0].sum())}/80 (action)")
 print("ACCEPTANCE PASSED")
 PYEOF

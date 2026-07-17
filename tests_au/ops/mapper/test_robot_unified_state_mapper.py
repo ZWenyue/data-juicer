@@ -25,6 +25,7 @@ from data_juicer._au.utils.embodiment_layout import (  # noqa: E402
     RIGHT_BASE,
     SHARED_BASE,
     UNIFIED_DIM,
+    build_action_dim_mask,
     build_dim_mask,
     load_embodiment_config,
     pack_episode_to_80,
@@ -92,7 +93,8 @@ class TestGalaxeaConfig(unittest.TestCase):
     def test_load_by_name(self):
         cfg = load_embodiment_config("galaxea_r1_lite")
         self.assertEqual(cfg["name"], "galaxea_r1_lite")
-        mask = build_dim_mask(cfg)
+        layout = build_dim_mask(cfg)
+        mask = build_action_dim_mask(cfg)
         self.assertEqual(mask.shape, (UNIFIED_DIM,))
         # R1 Lite: shoulder_roll (slot 1) padded; wrist_roll (slot 6) active
         self.assertEqual(mask[LEFT_BASE + OFF_JOINT + 1], 0.0)
@@ -100,15 +102,18 @@ class TestGalaxeaConfig(unittest.TestCase):
         self.assertEqual(mask[LEFT_BASE + OFF_JOINT + 6], 1.0)
         for i in (0, 2, 3, 4, 5, 6):
             self.assertEqual(mask[LEFT_BASE + OFF_JOINT + i], 1.0)
-        # gripper + eef
+        # gripper on; EEF is state-only → action mask 0, layout mask 1
         self.assertEqual(mask[LEFT_BASE + OFF_GRIPPER], 1.0)
-        self.assertTrue(np.all(mask[LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
+        self.assertTrue(np.all(mask[LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 0))
+        self.assertTrue(np.all(layout[LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
         # hand empty
         self.assertTrue(np.all(mask[LEFT_BASE + 17 : LEFT_BASE + 29] == 0))
         # chassis(6) + torso(4) shared
         self.assertTrue(np.all(mask[SHARED_BASE : SHARED_BASE + 10] == 1))
         self.assertTrue(np.all(mask[SHARED_BASE + 10 :] == 0))
-        self.assertEqual(int(mask.sum()), 42)
+        # (6 joints + 1 grip) * 2 + 10 shared = 24 (no EEF)
+        self.assertEqual(int(mask.sum()), 24)
+        self.assertEqual(int(layout.sum()), 42)
 
     def test_load_r1_pro_by_name(self):
         cfg = load_embodiment_config("galaxea_r1_pro")
@@ -119,27 +124,32 @@ class TestGalaxeaConfig(unittest.TestCase):
             for i, name in enumerate(CANONICAL_JOINT_NAMES):
                 self.assertEqual(jm[name], i)
             self.assertEqual(cfg["arms"][side]["eef"]["rot_repr"], "quat_xyzw")
-        mask = build_dim_mask(cfg)
+        mask = build_action_dim_mask(cfg)
+        layout = build_dim_mask(cfg)
         # all 7 joint slots occupied (no shoulder_roll pad)
         for base in (LEFT_BASE, RIGHT_BASE):
             for i in range(7):
                 self.assertEqual(mask[base + OFF_JOINT + i], 1.0)
             self.assertEqual(mask[base + OFF_GRIPPER], 1.0)
-            self.assertTrue(np.all(mask[base + OFF_EEF : base + OFF_EEF + 9] == 1))
+            self.assertTrue(np.all(mask[base + OFF_EEF : base + OFF_EEF + 9] == 0))
+            self.assertTrue(np.all(layout[base + OFF_EEF : base + OFF_EEF + 9] == 1))
             self.assertTrue(np.all(mask[base + 17 : base + 29] == 0))
         self.assertTrue(np.all(mask[SHARED_BASE : SHARED_BASE + 10] == 1))
         self.assertTrue(np.all(mask[SHARED_BASE + 10 :] == 0))
-        # 7+7 joints + 9+9 eef + 1+1 grip + 6 chassis + 4 torso = 44
-        self.assertEqual(int(mask.sum()), 44)
+        # 7+7 joints + 1+1 grip + 6 chassis + 4 torso = 26 (no EEF)
+        self.assertEqual(int(mask.sum()), 26)
+        self.assertEqual(int(layout.sum()), 44)
 
     def test_load_sim_behavior_r1_pro_by_name(self):
         cfg = load_embodiment_config("sim_behavior_r1_pro")
         self.assertEqual(cfg["name"], "sim_behavior_r1_pro")
         self.assertEqual(cfg["arms"]["left"]["source"]["state_slice"], [158, 165])
         self.assertEqual(cfg["arms"]["left"]["eef"]["rot_repr"], "quat_wxyz")
-        mask = build_dim_mask(cfg)
-        self.assertEqual(int(mask.sum()), 44)
-
+        mask = build_action_dim_mask(cfg)
+        # chassis action only first 3 slots (null pads); + torso 4 + arms
+        # 7+7 joints + 1+1 grip + 3 chassis + 4 torso = 23
+        self.assertEqual(int(mask.sum()), 23)
+        self.assertEqual(int(build_dim_mask(cfg).sum()), 44)
 
 @unittest.skipUnless(REAL_DATA_AVAILABLE, "Real dataset not found")
 class TestPackReal(unittest.TestCase):
@@ -167,9 +177,10 @@ class TestPackReal(unittest.TestCase):
         self.assertFalse(np.allclose(states[:, active], 0))
         # gripper mask on; values may be near zero depending on episode
         self.assertEqual(mask[0, LEFT_BASE + OFF_GRIPPER], 1.0)
-        # action has no EEF fill → EEF dims may be 0 but mask still 1
+        # action has no EEF fill → EEF dims 0 and action mask 0
         self.assertTrue(np.allclose(actions[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9], 0))
-        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
+        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 0))
+        self.assertEqual(int(mask[0].sum()), 24)
         # chassis: state = pose(3)+vel(3) into 6 slots; action twist also 6
         self.assertEqual(mask[0, SHARED_BASE : SHARED_BASE + 6].sum(), 6)
         self.assertEqual(states[0, SHARED_BASE : SHARED_BASE + 6].shape[0], 6)
@@ -192,7 +203,9 @@ class TestPackRealR1Pro(unittest.TestCase):
         self.assertEqual(states.shape, (T, 80))
         self.assertEqual(actions.shape, (T, 80))
         self.assertEqual(mask.shape, (T, 80))
-        self.assertEqual(int(mask[0].sum()), 44)
+        # torso action column absent in this dump → not in action mask
+        # 7+7 joints + 1+1 grip + 6 chassis = 22
+        self.assertEqual(int(mask[0].sum()), 22)
         # identity remap: unified joint slot i == source arm[:, i]
         left_src = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state.left_arm"]])
         np.testing.assert_allclose(states[:, LEFT_BASE : LEFT_BASE + 7], left_src)
@@ -200,15 +213,17 @@ class TestPackRealR1Pro(unittest.TestCase):
             [np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state.right_arm"]]
         )
         np.testing.assert_allclose(states[:, RIGHT_BASE : RIGHT_BASE + 7], right_src)
-        # all 7 joint slots occupied
+        # all 7 joint slots occupied in action mask
         self.assertTrue(np.all(mask[:, LEFT_BASE : LEFT_BASE + 7] == 1))
         self.assertTrue(np.all(mask[:, RIGHT_BASE : RIGHT_BASE + 7] == 1))
-        # no torso action column → action torso slots stay 0; mask still occupied
+        # no torso action column → action torso slots stay 0; mask also 0
         self.assertTrue(np.allclose(actions[:, SHARED_BASE + 6 : SHARED_BASE + 10], 0))
-        self.assertTrue(np.all(mask[:, SHARED_BASE + 6 : SHARED_BASE + 10] == 1))
+        self.assertTrue(np.all(mask[:, SHARED_BASE + 6 : SHARED_BASE + 10] == 0))
         # torso state present
         self.assertFalse(np.allclose(states[:, SHARED_BASE + 6 : SHARED_BASE + 10], 0))
-
+        # EEF state-only
+        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 0))
+        self.assertFalse(np.allclose(states[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 3], 0))
 
 @unittest.skipUnless(SIM_R1PRO_DATA_AVAILABLE, "GR00T sim R1 Pro dataset not found")
 class TestPackRealSimBehaviorR1Pro(unittest.TestCase):
@@ -226,7 +241,8 @@ class TestPackRealSimBehaviorR1Pro(unittest.TestCase):
         T = len(df)
         self.assertEqual(states.shape, (T, 80))
         self.assertEqual(actions.shape, (T, 80))
-        self.assertEqual(int(mask[0].sum()), 44)
+        # 7+7 joints + 1+1 grip + 3 chassis + 4 torso = 23
+        self.assertEqual(int(mask[0].sum()), 23)
 
         obs = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["observation.state"]])
         act = np.stack([np.asarray(v, dtype=float).reshape(-1) for v in df["action"]])
@@ -245,10 +261,12 @@ class TestPackRealSimBehaviorR1Pro(unittest.TestCase):
         # chassis action only first 3 dims filled
         np.testing.assert_allclose(actions[:, SHARED_BASE : SHARED_BASE + 3], act[:, 0:3])
         self.assertTrue(np.allclose(actions[:, SHARED_BASE + 3 : SHARED_BASE + 6], 0))
+        self.assertTrue(np.all(mask[:, SHARED_BASE : SHARED_BASE + 3] == 1))
+        self.assertTrue(np.all(mask[:, SHARED_BASE + 3 : SHARED_BASE + 6] == 0))
         # torso action
         np.testing.assert_allclose(actions[:, SHARED_BASE + 6 : SHARED_BASE + 10], act[:, 3:7])
-        # eef state occupied
-        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 1))
+        # eef state occupied in values, but not in action mask
+        self.assertTrue(np.all(mask[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 9] == 0))
         self.assertFalse(np.allclose(states[:, LEFT_BASE + OFF_EEF : LEFT_BASE + OFF_EEF + 3], 0))
 
 
@@ -274,7 +292,8 @@ class TestMapperReal(unittest.TestCase):
         self.assertEqual(out["num_frames"], len(out["unified_states"]))
         meta = json.loads(out[Fields.meta]["unified_dim_occupancy"])
         self.assertEqual(meta["dim"], 80)
-        self.assertEqual(meta["num_active"], 42)
+        self.assertEqual(meta["mask_kind"], "action")
+        self.assertEqual(meta["num_active"], 24)
 
     def test_skip_if_present(self):
         op = RobotUnifiedStateMapper(skip_if_present=True)
@@ -311,7 +330,7 @@ class TestCustomYaml(unittest.TestCase):
             with open(path, "w") as f:
                 yaml.safe_dump(cfg, f)
             loaded = load_embodiment_config(path)
-            mask = build_dim_mask(loaded)
+            mask = build_action_dim_mask(loaded)
             self.assertEqual(int(mask.sum()), 2)
             self.assertEqual(mask[0], 1)
             self.assertEqual(mask[1], 1)

@@ -39,11 +39,13 @@ bash robot_data_merge_lerobot.sh
 
 ### 2.1 Python 环境
 
-脚本默认使用：
+脚本默认使用仓库根目录下的相对虚拟环境：
 
 ```text
-/mnt/r/VENV/dj/bin/python
+<repo>/.venv/bin/python
 ```
+
+（由 `b/scripts/` 上溯两级解析 `REPO_ROOT`，再拼 `.venv`。）
 
 如环境位置不同，通过 `DJ_VENV` 指定虚拟环境根目录：
 
@@ -77,6 +79,7 @@ DJ_VENV=/path/to/venv bash robot_data_analyze.sh
 - `r1pro`、`r1_pro` → `galaxea_r1_pro`
 - `R1Pro` → `sim_behavior_r1_pro`
 - `sim_behavior_r1_pro`、`behavior_r1_pro` 标签 → `sim_behavior_r1_pro`
+- `agilex_cobot_decoupled_magic`、`agilex_cobot_magic` → `agilex_cobot_magic`
 
 无法识别布局时，分析和统一导出会跳过该任务；清洗脚本仍可执行数值清洗和 Check3，但不会生成统一 80 维数据。
 
@@ -116,7 +119,7 @@ bash robot_data_analyze.sh --video-key observation.images.head_rgb
 |---|---|---|
 | `DATASET_ROOT` | `/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press` | 原始任务根目录 |
 | `OUT_ROOT` | `.../process_clean/analyze` | 分析结果根目录 |
-| `DJ_VENV` | `/mnt/r/VENV/dj` | Python 虚拟环境根目录 |
+| `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 | `PROBE_EPS` | `8` | 每个任务抽取多少个 episode 做视频探针 |
 | `PROBE_FPS` | `2` | 视频探针抽帧帧率 |
 
@@ -202,7 +205,7 @@ bash robot_data_clean.sh \
 | `DATASET_ROOT` | `/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press` | 原始任务根目录 |
 | `OUT_ROOT` | `.../process_clean` | 清洗结果根目录 |
 | `ANALYZE_ROOT` | `.../process_clean/analyze` | 分析结果根目录 |
-| `DJ_VENV` | `/mnt/r/VENV/dj` | Python 虚拟环境根目录 |
+| `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 | `NP` | `16` | Data-Juicer 进程数 |
 | `BLUR_TH` | `20` | 无 `analysis.json` 时使用的模糊阈值 |
 
@@ -252,7 +255,7 @@ bash robot_data_export_unified.sh
 | `CLEAN_ROOT` | `.../process_clean` | 含各任务 `cleaned.jsonl` 的根目录 |
 | `DATASET_ROOT` | `.../press` | 原始 LeRobot 任务根目录 |
 | `OUT_ROOT` | `.../process_clean/unified80` | unified80 输出根目录 |
-| `DJ_VENV` | `/mnt/r/VENV/dj` | Python 虚拟环境根目录 |
+| `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 
 ### 5.4 输出
 
@@ -267,7 +270,7 @@ bash robot_data_export_unified.sh
 └── videos -> <源任务 videos>
 ```
 
-其中 `observation.state`、`action` 和 `mask` 均为 80 维。默认通过符号链接复用原始视频。
+其中 `observation.state`、`action` 和 `action_dim_mask` 均为 80 维（mask 为 action 有效维，供训练 `loss × mask`）。默认通过符号链接复用原始视频。
 
 任务缺少 `cleaned.jsonl`、源 `data/` 或受支持的 embodiment 布局时会被跳过，并在结束时打印导出和跳过数量。
 
@@ -332,7 +335,7 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 | `ROOT_SIM` | `.../PhysicalAI.../process_clean/unified80/use` | 第一组 unified80 任务根目录 |
 | `ROOT_GLX` | `.../Galaxea.../process_clean/260711_unified80/use` | 第二组 unified80 任务根目录 |
 | `OUT_ROOT` | `/mnt/r/DATA/merged_unified80` | 合并输出目录 |
-| `DJ_VENV` | `/mnt/r/VENV/dj` | Python 虚拟环境根目录 |
+| `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 | `VIDEO_POLICY` | `keep` | `keep` 保留视频；`none` 不合并视频 |
 | `LINK_MODE` | `symlink` | 视频处理方式：`symlink`、`hardlink` 或 `copy` |
 | `MAX_TASKS` | 空 | 每个输入根目录最多处理的任务数 |
@@ -361,7 +364,8 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 以下示例把分析、清洗、统一导出和合并结果分别放到独立目录：
 
 ```bash
-export DJ_VENV=/mnt/r/VENV/dj
+# 默认使用 <repo>/.venv；如需覆盖：
+# export DJ_VENV=/path/to/venv
 export DATASET_ROOT=/mnt/r/DATA/my_robot_dataset/tasks
 
 # 1. 分析
@@ -428,15 +432,16 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 ### 查看底层完整参数
 
 ```bash
-/mnt/r/VENV/dj/bin/python -m \
+# 在仓库根目录执行：
+.venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.analyze --help
 
-/mnt/r/VENV/dj/bin/python -m \
+.venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.run_robot_clean --help
 
-/mnt/r/VENV/dj/bin/python -m \
+.venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.export_unified --help
 
-/mnt/r/VENV/dj/bin/python -m \
+.venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.merge_lerobot --help
 ```

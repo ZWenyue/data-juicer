@@ -13,7 +13,7 @@ Output mirrors source task layout (NO videos/):
       episodes_stats.jsonl   # recomputed for unified columns
 
 Each parquet is frame-wise with:
-  observation.state[80], action[80], observation.state_dim_mask[80]
+  observation.state[80], action[80], action_dim_mask[80]
   + index fields when present in source
 """
 
@@ -119,7 +119,7 @@ def _export_one(args) -> dict:
     cols = {
         "observation.state": _list_col(states),
         "action": _list_col(actions),
-        "observation.state_dim_mask": _list_col(dim_mask),
+        "action_dim_mask": _list_col(dim_mask),
     }
     for name in _INDEX_COLS:
         if name in df.columns:
@@ -139,7 +139,7 @@ def _export_one(args) -> dict:
     stats = {
         "observation.state": _vector_stats(states),
         "action": _vector_stats(actions),
-        "observation.state_dim_mask": _vector_stats(dim_mask),
+        "action_dim_mask": _vector_stats(dim_mask),
     }
     for name in _INDEX_COLS:
         if name in df.columns:
@@ -265,7 +265,7 @@ def _write_task_meta(
             "shape": [UNIFIED_DIM],
             "names": [f"unified_{i}" for i in range(UNIFIED_DIM)],
         },
-        "observation.state_dim_mask": {
+        "action_dim_mask": {
             "dtype": "float64",
             "shape": [UNIFIED_DIM],
             "names": [f"mask_{i}" for i in range(UNIFIED_DIM)],

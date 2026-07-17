@@ -14,13 +14,14 @@ set -euo pipefail
 ROOT="${DATASET_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/press}"
 OUT="${OUT_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean}"
 ANALYZE_ROOT="${ANALYZE_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/analyze}"
-PY="${DJ_VENV:-/mnt/r/VENV/dj}/bin/python"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${DJ_VENV:-$REPO_ROOT/.venv}/bin/python"
 NP="${NP:-16}"
 # 仅当某任务没有 analysis.json 时使用
 BLUR_TH="${BLUR_TH:-20}"
 
-cd "$(dirname "$0")"
-export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 # Prefer embodiment.json tag when present (GR00T R1Pro vs Galaxea r1pro).
 embodiment_from_meta() {
@@ -32,12 +33,14 @@ embodiment_from_meta() {
   fi
   case "$tag" in
     sim_behavior_r1_pro|behavior_r1_pro) echo "sim_behavior_r1_pro"; return ;;
+    agilex_cobot_magic|agilex_cobot_decoupled_magic) echo "agilex_cobot_magic"; return ;;
   esac
   local rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$info")"
   case "$rt" in
     r1lite|r1_lite) echo "galaxea_r1_lite" ;;
     r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
     R1Pro)          echo "sim_behavior_r1_pro" ;;
+    agilex_cobot_decoupled_magic|agilex_cobot_magic) echo "agilex_cobot_magic" ;;
     *)              echo "" ;;
   esac
 }

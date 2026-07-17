@@ -13,8 +13,11 @@ Layout (same as tests_au/ops/mapper/export_unified_parquets.py):
     videos -> <source videos> # symlink
 
 Each parquet frame has:
-  observation.state[80], action[80], observation.state_dim_mask[80]
+  observation.state[80], action[80], action_dim_mask[80]
   + timestamp / frame_index / episode_index / ... when present
+
+``action_dim_mask`` marks supervised action dims for training ``loss × mask``
+(state-only channels such as EEF pose are 0).
 """
 
 from __future__ import annotations
@@ -204,7 +207,7 @@ def _write_task_meta(
             "shape": [UNIFIED_DIM],
             "names": [f"unified_{i}" for i in range(UNIFIED_DIM)],
         },
-        "observation.state_dim_mask": {
+        "action_dim_mask": {
             "dtype": "float64",
             "shape": [UNIFIED_DIM],
             "names": [f"mask_{i}" for i in range(UNIFIED_DIM)],
@@ -273,7 +276,7 @@ def _export_one_episode(src_parquet: str, dst_parquet: Path, cfg: dict) -> dict:
     cols = {
         "observation.state": _list_col(states),
         "action": _list_col(actions),
-        "observation.state_dim_mask": _list_col(dim_mask),
+        "action_dim_mask": _list_col(dim_mask),
     }
     for name in _INDEX_COLS:
         if name in df.columns:
@@ -290,7 +293,7 @@ def _export_one_episode(src_parquet: str, dst_parquet: Path, cfg: dict) -> dict:
     stats = {
         "observation.state": _vector_stats(states),
         "action": _vector_stats(actions),
-        "observation.state_dim_mask": _vector_stats(dim_mask),
+        "action_dim_mask": _vector_stats(dim_mask),
     }
     for name in _INDEX_COLS:
         if name in df.columns:

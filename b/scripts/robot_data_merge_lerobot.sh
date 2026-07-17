@@ -23,15 +23,16 @@ set -euo pipefail
 ROOT_SIM="${ROOT_SIM:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/unified80/use}"
 ROOT_GLX="${ROOT_GLX:-/mnt/r/DATA/Galaxea-Open-World-Dataset/process_clean/260711_unified80/use}"
 OUT="${OUT_ROOT:-/mnt/r/DATA/merged_unified80}"
-PY="${DJ_VENV:-/mnt/r/VENV/dj}/bin/python"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="${DJ_VENV:-$REPO_ROOT/.venv}/bin/python"
 VIDEO_POLICY="${VIDEO_POLICY:-keep}"
 LINK_MODE="${LINK_MODE:-symlink}"
 MAX_TASKS="${MAX_TASKS:-}"
 MAX_EPS="${MAX_EPS:-}"
 DRY_RUN="${DRY_RUN:-0}"
 
-cd "$(dirname "$0")"
-export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
   --root "$ROOT_SIM"

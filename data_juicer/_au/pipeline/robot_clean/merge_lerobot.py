@@ -51,7 +51,7 @@ _NUMERIC_FEATURES = {
         "shape": [UNIFIED_DIM],
         "names": [f"unified_{i}" for i in range(UNIFIED_DIM)],
     },
-    "observation.state_dim_mask": {
+    "action_dim_mask": {
         "dtype": "float64",
         "shape": [UNIFIED_DIM],
         "names": [f"mask_{i}" for i in range(UNIFIED_DIM)],
@@ -333,7 +333,7 @@ def _rewrite_parquet(
 
     # Preserve column order: original first, then any added.
     ordered = [c for c in names if c in arrays]
-    for c in ("observation.state", "action", "observation.state_dim_mask", *_INDEX_COLS):
+    for c in ("observation.state", "action", "action_dim_mask", *_INDEX_COLS):
         if c in arrays and c not in ordered:
             ordered.append(c)
     for c in arrays:
