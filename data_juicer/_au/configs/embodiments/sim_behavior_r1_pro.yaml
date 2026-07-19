@@ -90,3 +90,8 @@ shared:
     action_column: action
     action_source_indices: [3, 4, 5, 6]
     slots: [6, 7, 8, 9]
+
+prompt:
+  embodiment_id: sim_behavior_r1_pro
+  default_camera_view_direction: opposite side
+  camera_views: {}

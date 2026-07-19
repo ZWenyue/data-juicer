@@ -35,6 +35,11 @@ import pyarrow.parquet as pq
 from loguru import logger
 
 from ...utils.embodiment_layout import UNIFIED_DIM, load_embodiment_config, pack_episode_to_80
+from ...utils.embodiment_prompt import (
+    load_tasks_map,
+    write_episodes_jsonl_with_prompt_fields,
+)
+from ...utils.lerobot_episode_io import resolve_video_key
 
 _INDEX_COLS = (
     "timestamp",
@@ -116,26 +121,6 @@ def _scalar_stats(col) -> dict:
     }
 
 
-def _copy_jsonl_filtered(src: Path, dst: Path, keep_episode_indices: Optional[set] = None) -> int:
-    if not src.is_file():
-        return 0
-    n = 0
-    with open(src, encoding="utf-8") as fin, open(dst, "w", encoding="utf-8") as fout:
-        for line in fin:
-            line = line.strip()
-            if not line:
-                continue
-            if keep_episode_indices is not None:
-                row = json.loads(line)
-                if row.get("episode_index") not in keep_episode_indices:
-                    continue
-                fout.write(json.dumps(row, ensure_ascii=False) + "\n")
-            else:
-                fout.write(line + "\n")
-            n += 1
-    return n
-
-
 def _symlink_videos(task_out: Path, src_task: Path) -> Optional[str]:
     videos = src_task / "videos"
     if videos.is_symlink():
@@ -177,9 +162,21 @@ def _write_task_meta(
     n_eps = len(episode_results)
     n_frames = sum(r["T"] for r in episode_results)
     keep_idx = {r["episode_index"] for r in episode_results}
+    length_by_ep = {int(r["episode_index"]): int(r["T"]) for r in episode_results}
 
-    n_ep_meta = _copy_jsonl_filtered(
-        src_meta / "episodes.jsonl", meta_dir / "episodes.jsonl", keep_idx
+    cfg = load_embodiment_config(embodiment)
+    fps = float(base.get("fps", 15) or 15)
+    tasks_map = load_tasks_map(src_meta)
+    video_key = resolve_video_key(str(src_task))
+    n_ep_meta = write_episodes_jsonl_with_prompt_fields(
+        src_meta / "episodes.jsonl",
+        meta_dir / "episodes.jsonl",
+        cfg=cfg,
+        fps=fps,
+        tasks_map=tasks_map,
+        keep_episode_indices=keep_idx,
+        length_by_episode=length_by_ep,
+        video_key=video_key,
     )
     if (src_meta / "tasks.jsonl").is_file():
         shutil.copy2(src_meta / "tasks.jsonl", meta_dir / "tasks.jsonl")

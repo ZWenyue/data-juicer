@@ -75,3 +75,12 @@ shared:
     action_column: action.torso.velocities
     action_source_indices: [0, 1, 2, 3]
     slots: [6, 7, 8, 9]
+
+prompt:
+  embodiment_id: galaxea_r1_pro
+  default_camera_view_direction: opposite side
+  camera_views:
+    observation.images.head_rgb: opposite side
+    observation.images.head_right_rgb: opposite side
+    observation.images.left_wrist_rgb: arm side
+    observation.images.right_wrist_rgb: arm side

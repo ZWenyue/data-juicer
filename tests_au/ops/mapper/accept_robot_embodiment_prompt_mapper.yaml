@@ -1,0 +1,19 @@
+# Acceptance: resolve embodiment prompt fields onto DJ samples from LeRobot meta.
+project_name: 'accept-robot-embodiment-prompt'
+dataset_path: 'tests_au/ops/mapper/outputs/prompt_pointer.jsonl'
+export_path: 'tests_au/ops/mapper/outputs/accept_prompt_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_embodiment_prompt_mapper:
+      embodiment: 'galaxea_r1_lite'
+      parquet_field: 'parquet_path'
+      skip_if_present: false
+      write_debug_text: true
+      instruction_lang: 'en'

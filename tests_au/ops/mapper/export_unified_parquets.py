@@ -8,7 +8,7 @@ Output mirrors source task layout (NO videos/):
     data/chunk-XXX/episode_YYYYYY.parquet
     meta/
       info.json              # features = observation.state/action/mask[80], total_videos=0
-      episodes.jsonl         # copied/filtered from source
+      episodes.jsonl         # filtered + prompt_fields enriched
       tasks.jsonl            # copied from source
       episodes_stats.jsonl   # recomputed for unified columns
 
@@ -40,9 +40,14 @@ from data_juicer._au.utils.embodiment_layout import (  # noqa: E402
     load_embodiment_config,
     pack_episode_to_80,
 )
+from data_juicer._au.utils.embodiment_prompt import (  # noqa: E402
+    load_tasks_map,
+    write_episodes_jsonl_with_prompt_fields,
+)
 from data_juicer._au.utils.lerobot_episode_io import (  # noqa: E402
     iter_task_dirs,
     list_episode_parquets,
+    resolve_video_key,
 )
 
 _INDEX_COLS = (
@@ -157,27 +162,6 @@ def _export_one(args) -> dict:
     }
 
 
-def _copy_jsonl_filtered(src: Path, dst: Path, keep_episode_indices: set = None):
-    """Copy JSONL; optionally keep only rows whose episode_index is in the set."""
-    if not src.is_file():
-        return 0
-    n = 0
-    with open(src, encoding="utf-8") as fin, open(dst, "w", encoding="utf-8") as fout:
-        for line in fin:
-            line = line.strip()
-            if not line:
-                continue
-            if keep_episode_indices is not None:
-                row = json.loads(line)
-                if row.get("episode_index") not in keep_episode_indices:
-                    continue
-                fout.write(json.dumps(row, ensure_ascii=False) + "\n")
-            else:
-                fout.write(line + "\n")
-            n += 1
-    return n
-
-
 def _resolve_videos_target(src_task: Path) -> Path | None:
     """Return absolute videos directory for src_task, following one-level symlink."""
     videos = src_task / "videos"
@@ -235,9 +219,21 @@ def _write_task_meta(
     n_eps = len(episode_results)
     n_frames = sum(r["T"] for r in episode_results)
     keep_idx = {r["episode_index"] for r in episode_results}
+    length_by_ep = {int(r["episode_index"]): int(r["T"]) for r in episode_results}
 
-    n_ep_meta = _copy_jsonl_filtered(
-        src_meta / "episodes.jsonl", meta_dir / "episodes.jsonl", keep_idx
+    cfg = load_embodiment_config(embodiment)
+    fps = float(base.get("fps", 15) or 15)
+    tasks_map = load_tasks_map(src_meta)
+    video_key = resolve_video_key(str(src_task))
+    n_ep_meta = write_episodes_jsonl_with_prompt_fields(
+        src_meta / "episodes.jsonl",
+        meta_dir / "episodes.jsonl",
+        cfg=cfg,
+        fps=fps,
+        tasks_map=tasks_map,
+        keep_episode_indices=keep_idx,
+        length_by_episode=length_by_ep,
+        video_key=video_key,
     )
     if (src_meta / "tasks.jsonl").is_file():
         shutil.copy2(src_meta / "tasks.jsonl", meta_dir / "tasks.jsonl")
@@ -324,7 +320,12 @@ def _write_task_meta(
     }
 
 
-def collect_jobs(root: str, out: str, max_tasks: int = None):
+def collect_jobs(
+    root: str,
+    out: str,
+    max_tasks: int = None,
+    max_episodes: int = None,
+):
     root_p = Path(root).resolve()
     jobs = []  # (src, out_parquet)
     if (root_p / "data").is_dir():
@@ -337,6 +338,8 @@ def collect_jobs(root: str, out: str, max_tasks: int = None):
         for pf in list_episode_parquets(str(task_dir)):
             out_pf = _out_parquet_path(pf, str(root_p), out)
             jobs.append((pf, str(out_pf), str(task_dir)))
+            if max_episodes is not None and len(jobs) >= max_episodes:
+                return jobs
     return jobs
 
 
@@ -347,6 +350,7 @@ def main():
     ap.add_argument("--embodiment", default="galaxea_r1_lite")
     ap.add_argument("--embodiment_config", default=None)
     ap.add_argument("--max_tasks", type=int, default=None)
+    ap.add_argument("--max_episodes", type=int, default=None)
     ap.add_argument("--num_workers", type=int, default=8)
     ap.add_argument(
         "--link_videos",
@@ -361,7 +365,9 @@ def main():
     load_embodiment_config(cfg_ref)
 
     os.makedirs(args.out, exist_ok=True)
-    collected = collect_jobs(args.root, args.out, args.max_tasks)
+    collected = collect_jobs(
+        args.root, args.out, args.max_tasks, max_episodes=args.max_episodes
+    )
     if not collected:
         raise SystemExit(f"No episodes found under {args.root}")
 

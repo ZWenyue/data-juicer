@@ -106,3 +106,8 @@ packed_variants:
           state_column: observation.state
           state_slice: [20, 26]
           rot_repr: euler_xyz
+
+prompt:
+  embodiment_id: agilex_cobot_magic
+  default_camera_view_direction: arm side
+  camera_views: {}
