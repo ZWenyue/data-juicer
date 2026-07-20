@@ -34,6 +34,7 @@ embodiment_from_meta() {
   case "$tag" in
     sim_behavior_r1_pro|behavior_r1_pro) echo "sim_behavior_r1_pro"; return ;;
     agilex_cobot_magic|agilex_cobot_decoupled_magic) echo "agilex_cobot_magic"; return ;;
+    aloha) echo "aloha"; return ;;
   esac
   local rt="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('robot_type',''))" "$info")"
   case "$rt" in
@@ -41,6 +42,7 @@ embodiment_from_meta() {
     r1pro|r1_pro)   echo "galaxea_r1_pro" ;;
     R1Pro)          echo "sim_behavior_r1_pro" ;;
     agilex_cobot_decoupled_magic|agilex_cobot_magic) echo "agilex_cobot_magic" ;;
+    aloha)          echo "aloha" ;;
     *)              echo "" ;;
   esac
 }

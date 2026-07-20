@@ -80,6 +80,7 @@ DJ_VENV=/path/to/venv bash robot_data_analyze.sh
 - `R1Pro` → `sim_behavior_r1_pro`
 - `sim_behavior_r1_pro`、`behavior_r1_pro` 标签 → `sim_behavior_r1_pro`
 - `agilex_cobot_decoupled_magic`、`agilex_cobot_magic` → `agilex_cobot_magic`
+- `aloha` → `aloha`
 
 无法识别布局时，分析和统一导出会跳过该任务；清洗脚本仍可执行数值清洗和 Check3，但不会生成统一 80 维数据。
 
