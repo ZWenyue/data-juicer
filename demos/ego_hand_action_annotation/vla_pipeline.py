@@ -168,7 +168,7 @@ if __name__ == '__main__':
         batch_size=1,
         num_cpus=1,
         batch_format="pyarrow",
-        runtime_env={"conda": "base"},
+        runtime_env={"conda": "data_juicer"},
     )
 
     ds = ds.map_batches(
@@ -188,7 +188,7 @@ if __name__ == '__main__':
         num_gpus=0.15,  # adjust the ratio based on the gpu type
         batch_format="pyarrow",
         compute=ActorPoolStrategy(min_size=1, max_size=2),  # adjust the scope based on available resources
-        runtime_env={"conda": "base"},
+        runtime_env={"conda": "data_juicer"},
     )
 
     ds = ds.map_batches(
@@ -197,8 +197,8 @@ if __name__ == '__main__':
             camera_calibration_field=MetaKeys.camera_calibration_moge_tags,
             hawor_tag_field=MetaKeys.hand_reconstruction_hawor_tags,
             megasam_tag_field=MetaKeys.video_camera_pose_tags,
-            mano_right_path='/path/to/MANO_RIGHT.pkl',
-            mano_left_path='/path/to/MANO_LEFT.pkl',
+            mano_right_path='/mnt/r/share/zwy/Projects/data-juicer/mano_v1_2/models/MANO_RIGHT.pkl',
+            mano_left_path='/mnt/r/share/zwy/Projects/data-juicer/mano_v1_2/models/MANO_LEFT.pkl',
             frame_field=MetaKeys.video_frames,
             megasam_max_frames=1000,
             megasam_save_dir=os.path.join(output_dir, 'megasam_arrays'),
@@ -225,7 +225,7 @@ if __name__ == '__main__':
         batch_size=1,
         num_cpus=1,
         batch_format="pyarrow",
-        runtime_env={"conda": "base"},
+        runtime_env={"conda": "data_juicer"},
     )
 
     ds = ds.map_batches(
@@ -242,7 +242,7 @@ if __name__ == '__main__':
         batch_size=1,
         num_cpus=1,
         batch_format="pyarrow",
-        runtime_env={"conda": "base"},
+        runtime_env={"conda": "data_juicer"},
     )
 
     ds = ds.map_batches(
@@ -261,11 +261,18 @@ if __name__ == '__main__':
         batch_size=1,
         num_cpus=1,
         batch_format="pyarrow",
-        runtime_env={"conda": "base"},
+        runtime_env={"conda": "data_juicer"},
     )
 
-    ds.write_parquet(output_dir)
-    # ds.write_json(output_dir, force_ascii=False)
+    # NOTE: ds.write_parquet(output_dir) fails with
+    #   ArrowNotImplementedError: Cannot write struct type 'element' with no
+    #   child field to Parquet
+    # because the nested meta contains empty-struct columns. The actual
+    # deliverable (LeRobot dataset) is written by ExportToLeRobotMapper during
+    # the pipeline, so we only need to materialize to trigger execution, then
+    # finalize. Re-enable write_parquet/write_json only if you also prune the
+    # empty-struct meta columns first.
+    ds.materialize()
 
     ExportToLeRobotMapper.finalize_dataset(
         output_dir=lerobot_output_dir,

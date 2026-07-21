@@ -29,8 +29,8 @@ process:
       hawor_detector_path: 'detector.pt'
       camera_calibration_field: 'camera_calibration_moge_tags'
       tag_field_name: 'hand_reconstruction_hawor_tags'
-      mano_right_path: '/path/to/MANO_RIGHT.pkl'
-      mano_left_path: '/path/to/MANO_LEFT.pkl'
+      mano_right_path: '/mnt/r/share/zwy/Projects/data-juicer/mano_v1_2/models/MANO_RIGHT.pkl'
+      mano_left_path: '/mnt/r/share/zwy/Projects/data-juicer/mano_v1_2/models/MANO_LEFT.pkl'
       frame_field: 'video_frames'
       batch_mode: true
   # ⚠️ the operator requires a separate conda environment "mega-sam"
