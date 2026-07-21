@@ -156,6 +156,8 @@ Stage1 突变检测 → Stage2 状态/动作对齐 → Stage3 极值检测
 
 如果 `<ANALYZE_ROOT>/<task>/analysis.json` 存在，脚本自动读取其中的 `suggested_clean_flags`；否则使用 `BLUR_TH` 作为 Check3 模糊阈值。各旗标含义见 [ROBOT_CLEAN_FLAGS.md](./ROBOT_CLEAN_FLAGS.md)。
 
+清洗脚本会拒绝复用旧版（`analysis_version < 2`）分析文件，避免旧的固定分位数策略继续误删；升级后请先重新运行分析脚本。
+
 ### 4.2 基本用法
 
 ```bash
@@ -208,7 +210,7 @@ bash robot_data_clean.sh \
 | `ANALYZE_ROOT` | `.../process_clean/analyze` | 分析结果根目录 |
 | `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 | `NP` | `16` | Data-Juicer 进程数 |
-| `BLUR_TH` | `20` | 无 `analysis.json` 时使用的模糊阈值 |
+| `BLUR_TH` | `1` | 无 `analysis.json` 时使用的保守模糊阈值 |
 
 ### 4.4 输出
 

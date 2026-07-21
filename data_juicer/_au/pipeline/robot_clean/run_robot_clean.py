@@ -238,7 +238,10 @@ def build_argparser() -> argparse.ArgumentParser:
         "--check3-max-keyframe-overlap",
         type=int,
         default=None,
-        help="Max allowed bad/keyframe overlap before discard (default 0)",
+        help=(
+            "Max allowed bad/keyframe overlap before discard "
+            "(default: disabled; overlap is still reported)"
+        ),
     )
     g3.add_argument(
         "--check3-blackness-threshold",
@@ -250,7 +253,7 @@ def build_argparser() -> argparse.ArgumentParser:
         "--check3-blur-threshold",
         type=float,
         default=None,
-        help="Laplacian-variance threshold for blurred frames (default 50.0)",
+        help="Laplacian-variance threshold for blurred frames (fallback default 1.0)",
     )
     g3.add_argument("--check3-decoder", default="auto", choices=["auto", "pyav", "opencv", "ffmpeg"])
     g3.add_argument(

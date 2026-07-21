@@ -125,6 +125,21 @@ class RobotVideoQualityEpisodeFilterTest(DataJuicerTestCaseBase):
             result[Fields.stats]["video_quality_episode_keyframe_overlap"], 1
         )
 
+    def test_keyframe_overlap_is_report_only_by_default(self):
+        """Default gate should not reject an otherwise healthy episode."""
+        sample = _make_sample(
+            num_frames=100, bad_indices=[10, 20], protected_indices=[10, 50]
+        )
+        op = RobotVideoQualityEpisodeFilter(
+            max_bad_ratio=0.5,
+            min_good_frames=5,
+        )
+        result, keep = self._run(op, sample)
+        self.assertTrue(keep)
+        report = json.loads(result[Fields.meta][REPORT_FIELD])
+        self.assertEqual(report["keyframe_overlap"], 1)
+        self.assertNotIn("keyframe_contaminated", report["reject_reasons"])
+
     def test_multiple_rejection_reasons(self):
         """Multiple conditions can trigger simultaneously."""
         bad = list(range(50))

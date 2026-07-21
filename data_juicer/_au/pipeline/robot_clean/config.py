@@ -55,10 +55,16 @@ class CleanConfig:
     # Check 3
     check3_max_bad_ratio: float = 0.1
     check3_min_good_frames: int = 20
-    check3_max_keyframe_overlap: int = 0
+    # Keyframe overlap remains observable in reports, but is not a rejection
+    # gate by default.  A zero-tolerance gate produced many false positives on
+    # otherwise healthy simulation videos.
+    check3_max_keyframe_overlap: Optional[int] = None
+    check3_gripper_dims: List[int] = field(default_factory=lambda: [7, 15])
+    check3_gripper_delta_threshold_frac: float = 0.05
     check3_decoder: str = "auto"
     check3_blackness_threshold: float = 10.0
-    check3_blur_threshold: float = 50.0
+    # Conservative fallback when no dataset-specific analysis is available.
+    check3_blur_threshold: float = 1.0
     # Optional subsample during scoring (None = every frame).
     check3_sampling_fps: Optional[float] = None
 

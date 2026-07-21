@@ -29,6 +29,7 @@ class RobotKeyFrameDetectorMapper(Mapper):
         gripper_field: str = None,
         gripper_close_direction: str = "decrease",
         gripper_delta_threshold: float = 5.0,
+        gripper_delta_threshold_frac: float = None,
         state_velocity_percentile: float = 95.0,
         keyframe_window: int = 3,
         exempt_dims: list = None,
@@ -47,6 +48,7 @@ class RobotKeyFrameDetectorMapper(Mapper):
         self.gripper_field = gripper_field
         self.gripper_close_direction = gripper_close_direction
         self.gripper_delta_threshold = gripper_delta_threshold
+        self.gripper_delta_threshold_frac = gripper_delta_threshold_frac
         self.state_velocity_percentile = state_velocity_percentile
         self.keyframe_window = keyframe_window
         self.exempt_dims = exempt_dims or []
@@ -65,21 +67,39 @@ class RobotKeyFrameDetectorMapper(Mapper):
         if self.gripper_field is not None:
             raw = sample.get(self.gripper_field)
             if raw is not None:
-                return np.array(raw, dtype=np.float64).ravel()
+                return np.array(raw, dtype=np.float64)
         if self.gripper_dims is not None and states is not None:
-            dims = self.gripper_dims
-            return np.mean(states[:, dims], axis=1)
+            dims = [d for d in self.gripper_dims if 0 <= d < states.shape[1]]
+            if dims:
+                return states[:, dims]
         return None
 
     def _detect_gripper_events(self, gripper_signal):
         if gripper_signal is None or len(gripper_signal) < 2:
             return []
-        delta = np.diff(gripper_signal)
-        if self.gripper_close_direction == "decrease":
-            events = np.where(delta < -self.gripper_delta_threshold)[0]
-        else:
-            events = np.where(delta > self.gripper_delta_threshold)[0]
-        return events.tolist()
+        signal = np.asarray(gripper_signal, dtype=np.float64)
+        if signal.ndim == 1:
+            signal = signal[:, None]
+
+        events = set()
+        for d in range(signal.shape[1]):
+            values = signal[:, d]
+            delta = np.diff(values)
+            threshold = float(self.gripper_delta_threshold)
+            if self.gripper_delta_threshold_frac is not None:
+                q01, q99 = np.percentile(values, [1, 99])
+                range_threshold = float(self.gripper_delta_threshold_frac) * float(q99 - q01)
+                abs_delta = np.abs(delta)
+                med = float(np.median(abs_delta))
+                mad = float(np.median(np.abs(abs_delta - med)))
+                noise_threshold = med + 6.0 * 1.4826 * mad
+                threshold = max(range_threshold, noise_threshold, np.finfo(float).eps)
+            if self.gripper_close_direction == "decrease":
+                dim_events = np.where(delta < -threshold)[0]
+            else:
+                dim_events = np.where(delta > threshold)[0]
+            events.update(dim_events.tolist())
+        return sorted(events)
 
     def _detect_velocity_peaks(self, states):
         if states is None or len(states) < 2:

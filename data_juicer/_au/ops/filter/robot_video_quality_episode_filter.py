@@ -1,6 +1,5 @@
 import json
-
-import numpy as np
+from typing import Optional
 
 from data_juicer.ops.base_op import OPERATORS, Filter
 from data_juicer.utils.constant import Fields
@@ -18,8 +17,10 @@ class RobotVideoQualityEpisodeFilter(Filter):
 
     1. Bad-frame ratio must not exceed ``max_bad_ratio``.
     2. Good-frame count must be at least ``min_good_frames``.
-    3. Overlap between bad frames and protected keyframes must not exceed
-       ``max_keyframe_overlap``.
+    3. When ``max_keyframe_overlap`` is configured, overlap between bad frames
+       and protected keyframes must not exceed it.  The gate is disabled by
+       default because a single overlap is not sufficient evidence that an
+       otherwise healthy episode is unusable.
 
     If all three criteria are met the episode is kept *unchanged* (no
     frames are deleted).  Otherwise the entire episode is discarded.
@@ -31,7 +32,7 @@ class RobotVideoQualityEpisodeFilter(Filter):
         keyframe_report_field: str = "key_frame_report",
         max_bad_ratio: float = 0.1,
         min_good_frames: int = 20,
-        max_keyframe_overlap: int = 0,
+        max_keyframe_overlap: Optional[int] = None,
         report_field: str = "video_quality_episode_report",
         *args,
         **kwargs,
@@ -95,7 +96,10 @@ class RobotVideoQualityEpisodeFilter(Filter):
             reject_reasons.append("bad_ratio_exceeded")
         if num_good < self.min_good_frames:
             reject_reasons.append("too_few_good_frames")
-        if keyframe_overlap > self.max_keyframe_overlap:
+        if (
+            self.max_keyframe_overlap is not None
+            and keyframe_overlap > self.max_keyframe_overlap
+        ):
             reject_reasons.append("keyframe_contaminated")
 
         keep = len(reject_reasons) == 0

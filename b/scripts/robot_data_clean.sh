@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${DJ_VENV:-$REPO_ROOT/.venv}/bin/python"
 NP="${NP:-16}"
 # 仅当某任务没有 analysis.json 时使用
-BLUR_TH="${BLUR_TH:-20}"
+BLUR_TH="${BLUR_TH:-1}"
 
 cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
@@ -77,6 +77,12 @@ for d in "$ROOT"/*/; do
 
   aj="$ANALYZE_ROOT/$task/analysis.json"
   if [[ -f "$aj" ]]; then
+    analysis_version="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('analysis_version', 0))" "$aj")"
+    if [[ "$analysis_version" -lt 2 ]]; then
+      echo "[ERROR] $task: analysis.json 由旧版阈值策略生成，拒绝复用以避免误删。"
+      echo "        请先重新运行 b/scripts/robot_data_analyze.sh（analysis: $aj）"
+      exit 2
+    fi
     # shellcheck disable=SC2206
     thresh=( $(flags_from_analysis "$aj") )
     echo "=== $task (robot_type=$rt, embodiment=${emb_name:-none}, 使用分析旗标: ${thresh[*]})"

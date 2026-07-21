@@ -530,6 +530,26 @@ def pack_episode_to_80(df, cfg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray,
     action_dim_mask : (T, 80) action occupancy (1 = supervised action dim for loss)
     """
     cfg = apply_packed_variant(cfg, df)
+    if "observation.state" in df.columns and "action" in df.columns:
+        existing_states = _as_TxD(df["observation.state"])
+        existing_actions = _as_TxD(df["action"])
+        if (
+            existing_states.shape[1] == UNIFIED_DIM
+            and existing_actions.shape[1] == UNIFIED_DIM
+        ):
+            if "action_dim_mask" in df.columns:
+                action_dim_mask = _as_TxD(
+                    df["action_dim_mask"],
+                    expected_last=UNIFIED_DIM,
+                )
+            else:
+                occupancy = build_action_dim_mask(cfg)
+                action_dim_mask = np.broadcast_to(
+                    occupancy.reshape(1, -1),
+                    existing_actions.shape,
+                ).copy()
+            return existing_states, existing_actions, action_dim_mask
+
     # Determine T from any present column referenced by the config
     T = None
     for side in _ARM_KEYS:

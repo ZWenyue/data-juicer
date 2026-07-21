@@ -169,6 +169,36 @@ def episode_arrays_from_embodiment(
         cfg = load_embodiment_config(embodiment)
     cfg = apply_packed_variant(cfg, df)
 
+    # Canonical-80 exports are already mapped to fixed semantic slots.  Do not
+    # apply the source embodiment slices again: for example, slicing the first
+    # 14 values of an ALOHA canonical vector silently reads the wrong joints.
+    if _has_unified(df):
+        raw_states, raw_actions = episode_arrays_from_df(df)
+        if raw_states.shape[1] == 80 and raw_actions.shape[1] == 80:
+            from .embodiment_layout import (
+                LEFT_BASE,
+                NUM_JOINTS,
+                OFF_GRIPPER,
+                OFF_JOINT,
+                RIGHT_BASE,
+            )
+
+            def canonical_to_clean16(values):
+                left_joints = values[
+                    :, LEFT_BASE + OFF_JOINT : LEFT_BASE + OFF_JOINT + NUM_JOINTS
+                ]
+                left_gripper = values[:, LEFT_BASE + OFF_GRIPPER : LEFT_BASE + OFF_GRIPPER + 1]
+                right_joints = values[
+                    :, RIGHT_BASE + OFF_JOINT : RIGHT_BASE + OFF_JOINT + NUM_JOINTS
+                ]
+                right_gripper = values[:, RIGHT_BASE + OFF_GRIPPER : RIGHT_BASE + OFF_GRIPPER + 1]
+                return np.concatenate(
+                    [left_joints, left_gripper, right_joints, right_gripper],
+                    axis=1,
+                )
+
+            return canonical_to_clean16(raw_states), canonical_to_clean16(raw_actions)
+
     arms = cfg.get("arms") or {}
     slice_err = None
     if "left" in arms and "right" in arms:

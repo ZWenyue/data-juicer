@@ -8,7 +8,7 @@ ROOT="${DATASET_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/pre
 OUT="${OUT_ROOT:-/mnt/r/DATA/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim/process_clean/analyze}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${DJ_VENV:-$REPO_ROOT/.venv}/bin/python"
-PROBE_EPS="${PROBE_EPS:-8}"           # Check3 视频探针每任务评分的 episode 数
+PROBE_EPS="${PROBE_EPS:-32}"          # Check3 分层视频探针每任务评分的 episode 数
 PROBE_FPS="${PROBE_FPS:-2}"           # 视频探针抽帧 fps
 
 cd "$REPO_ROOT"

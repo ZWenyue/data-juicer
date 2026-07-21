@@ -34,7 +34,6 @@ from .prepare import compute_embodiment_percentiles
 from .recipe import read_source_fps
 
 DA_CANDIDATES = (0.60, 0.65, 0.70)
-TARGET_KEEP = 0.90
 
 
 def _pcts(x: np.ndarray) -> Dict[str, float]:
@@ -49,6 +48,28 @@ def _pcts(x: np.ndarray) -> Dict[str, float]:
         "max": float(np.max(x)),
         "mean": float(np.mean(x)),
     }
+
+
+def _upper_outer_fence(
+    values: np.ndarray,
+    floor: float,
+    ceiling: Optional[float] = None,
+) -> float:
+    """Conservative upper outlier fence without a fixed rejection quota."""
+    q25, q75 = np.percentile(np.asarray(values, dtype=float), [25, 75])
+    fence = max(float(floor), float(q75 + 3.0 * (q75 - q25)))
+    return min(fence, float(ceiling)) if ceiling is not None else fence
+
+
+def _lower_outer_fence(
+    values: np.ndarray,
+    floor: float,
+    ceiling: Optional[float] = None,
+) -> float:
+    """Conservative lower outlier fence without a fixed rejection quota."""
+    q25, q75 = np.percentile(np.asarray(values, dtype=float), [25, 75])
+    fence = max(float(floor), float(q25 - 3.0 * (q75 - q25)))
+    return min(fence, float(ceiling)) if ceiling is not None else fence
 
 
 # --------------------------------------------------------------------------- #
@@ -118,7 +139,9 @@ def collect_numeric_stats(
 def suggest_numeric(
     rows: List[Dict[str, Any]],
     probe_alpha: float,
+    s1_max_flagged_ratio: float = 0.3,
     s1_max_run_length: int = 10,
+    s2_da_threshold: float = 0.65,
     s3_max_flagged_ratio: float = 0.3,
 ) -> Dict[str, Any]:
     """Suggest S1/S2/S3 thresholds from collected per-episode stats."""
@@ -129,18 +152,37 @@ def suggest_numeric(
     mean_da = np.array([r["stats"]["state_action_mean_da"] for r in rows], dtype=float)
     ev = np.array([r["stats"]["extreme_value_flagged_ratio"] for r in rows], dtype=float)
 
-    max_flagged_ratio = float(np.clip(np.percentile(ratio, TARGET_KEEP * 100), 0.05, 0.5))
-    # Keep ~TARGET_KEEP of episodes on the max-run gate; floor at the caller's default.
-    suggested_max_run = int(max(s1_max_run_length, np.ceil(np.percentile(max_run, TARGET_KEEP * 100))))
+    # A percentile threshold rejects a fixed tail even when every episode is
+    # healthy.  Use a conservative Tukey outer fence and never tighten the
+    # production defaults merely because this dataset has low variance.
+    max_flagged_ratio = _upper_outer_fence(
+        ratio,
+        floor=s1_max_flagged_ratio,
+        ceiling=1.0,
+    )
+    max_flagged_ratio = min(1.0, max(max_flagged_ratio, float(np.max(ratio))))
+    suggested_max_run = int(
+        np.ceil(
+            max(
+                _upper_outer_fence(max_run, floor=s1_max_run_length),
+                float(np.max(max_run)),
+            )
+        )
+    )
 
     da_table = []
-    best_da, best_score = DA_CANDIDATES[0], None
     for cand in DA_CANDIDATES:
         drop_frac = float(np.mean(min_da < cand))
         da_table.append({"da_threshold": cand, "drop_frac": drop_frac})
-        score = abs(drop_frac - 0.10)
-        if best_score is None or score < best_score:
-            best_score, best_da = score, cand
+    # Low DA is anomalous.  A lower outer fence can relax the default on a
+    # broadly distributed dataset, but never makes it stricter or targets a
+    # predetermined rejection rate.
+    best_da = _lower_outer_fence(
+        min_da,
+        floor=0.0,
+        ceiling=s2_da_threshold,
+    )
+    best_da = min(best_da, float(np.min(min_da)))
 
     mean_ev = float(np.mean(ev))
     if mean_ev > 0.15:
@@ -166,9 +208,10 @@ def suggest_numeric(
 
     return {
         "n_episodes": n,
+        "threshold_policy": "conservative_observed_envelope",
         "max_flagged_ratio": round(max_flagged_ratio, 4),
         "max_run_length": int(suggested_max_run),
-        "da_threshold": best_da,
+        "da_threshold": round(best_da, 4),
         "alpha": alpha,
         "s3_max_flagged_ratio": float(s3_max_flagged_ratio),
         "s3_warning": s3_warning,
@@ -255,8 +298,10 @@ def suggest_video(
     blur = vstats["_blur"]
     black = vstats["_black"]
 
-    # Flag frames noticeably blurrier than typical: sit just below the low tail.
-    blur_thr = float(round(max(1.0, np.percentile(blur, 2)), 1))
+    # Detect a genuinely separated low-blur tail.  A fixed low percentile
+    # labels some frames bad by construction, even for uniformly healthy sim
+    # renders; the lower outer fence avoids that fixed rejection quota.
+    blur_thr = float(round(_lower_outer_fence(blur, floor=1.0), 1))
     # Blackness: normal frames are bright; keep default 10 unless data is very dark.
     p01_black = float(np.percentile(black, 1))
     black_thr = 10.0 if p01_black >= 20.0 else float(round(max(1.0, p01_black * 0.5), 1))
@@ -308,7 +353,8 @@ def suggest_video(
             "episode_drop_frac": episode_drop_frac,
             "n_videos_probed": len(reject),
             "note": (
-                "基于探针视频+抽帧的近似估计（未含关键帧污染门控）；"
+                "基于分层探针视频+抽帧的近似估计；默认仅报告关键帧污染，"
+                "不以关键帧重叠删除 episode；"
                 "默认清洗全帧评分时以实际 Check3 结果为准。"
             ),
         },
@@ -329,13 +375,21 @@ def _list_videos(dataset: str, files: List[str], video_key: str) -> List[str]:
     return out
 
 
+def _sample_evenly(items: List[str], limit: int) -> List[str]:
+    """Sample across the full ordered dataset instead of taking its prefix."""
+    if limit <= 0 or limit >= len(items):
+        return list(items)
+    indices = np.linspace(0, len(items) - 1, num=limit, dtype=int)
+    return [items[i] for i in dict.fromkeys(indices.tolist())]
+
+
 def analyze_task(
     dataset: str,
     output: str,
     embodiment: str = "galaxea_r1_lite",
     video_key: str = "observation.images.head_rgb",
     max_episodes: Optional[int] = None,
-    probe_video_episodes: int = 8,
+    probe_video_episodes: int = 32,
     probe_sampling_fps: float = 2.0,
     probe_alpha: float = 0.1,
     analyze_video: bool = True,
@@ -365,11 +419,14 @@ def analyze_task(
     numeric = suggest_numeric(
         rows,
         probe_alpha,
+        s1_max_flagged_ratio=cfg.s1_max_flagged_ratio,
         s1_max_run_length=cfg.s1_max_run_length,
+        s2_da_threshold=cfg.s2_da_threshold,
         s3_max_flagged_ratio=cfg.s3_max_flagged_ratio,
     )
 
     result: Dict[str, Any] = {
+        "analysis_version": 2,
         "dataset": str(Path(dataset).resolve()),
         "embodiment": embodiment,
         "video_key": resolved_video_key,
@@ -390,7 +447,7 @@ def analyze_task(
             logger.warning(f"[video] no videos for key {resolved_video_key}; skipping video probe")
             result["video"] = {"n_videos_decoded": 0, "reason": "no_video_key"}
         else:
-            vfiles = vfiles[: int(probe_video_episodes)]
+            vfiles = _sample_evenly(vfiles, int(probe_video_episodes))
             fps = read_source_fps(dataset)
             logger.info(f"[video] scoring {len(vfiles)} videos @ sampling_fps={probe_sampling_fps} (src {fps})...")
             vstats = collect_video_stats(
@@ -431,7 +488,7 @@ def analyze_task(
         note = (
             "Stage1/2/3 均为 episode_discard（数值侧为逐 episode 并集）；"
             "再与 Check3 探针丢弃率按独立近似合成。"
-            "Check3 未含关键帧污染；全量清洗以实际结果为准。"
+            "默认关键帧污染仅报告、不参与删除；全量清洗以实际结果为准。"
         )
     n_eps = len(files)
     result["estimated_wash"] = {
@@ -558,7 +615,10 @@ def _write_markdown(result: Dict[str, Any], path: Path) -> None:
         sug = video["suggestion"]
         vw = sug.get("wash") or {}
         lines.append(f"解码视频数: {video['n_videos_decoded']}\n\n")
-        lines.append(f"blur_laplacian_var: min={b['min']:.1f} p01={b['p01']:.1f} p05={b['p05']:.1f} p50={b['p50']:.1f}\n\n")
+        lines.append(
+            f"blur_laplacian_var: min={b['min']:.1f} p01={b['p01']:.1f} "
+            f"p05={b['p05']:.1f} p50={b['p50']:.1f}\n\n"
+        )
         lines.append(f"blackness(mean intensity): min={k['min']:.1f} p01={k['p01']:.1f} p50={k['p50']:.1f}\n\n")
         lines.append("| blur_threshold | flag_frac |\n|---|---|\n")
         for t in sug["blur_flag_table"]:
@@ -596,7 +656,12 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--embodiment", default="galaxea_r1_lite")
     p.add_argument("--video-key", default="observation.images.head_rgb")
     p.add_argument("--max-episodes", type=int, default=None, help="Limit numeric scan episodes")
-    p.add_argument("--probe-video-episodes", type=int, default=8, help="Videos to score for Check3 probe")
+    p.add_argument(
+        "--probe-video-episodes",
+        type=int,
+        default=32,
+        help="Evenly sampled videos to score for Check3 probe",
+    )
     p.add_argument("--probe-sampling-fps", type=float, default=2.0, help="Sampling fps for video probe")
     p.add_argument("--probe-alpha", type=float, default=0.1, help="Stage3 alpha used while probing")
     p.add_argument("--no-video", action="store_true", help="Skip Check3 video probe")

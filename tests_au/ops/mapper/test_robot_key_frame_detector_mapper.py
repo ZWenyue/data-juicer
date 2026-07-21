@@ -69,6 +69,26 @@ class RobotKeyFrameDetectorMapperTest(DataJuicerTestCaseBase):
         report = json.loads(result[Fields.meta][REPORT_FIELD])
         self.assertGreater(report["num_gripper_events"], 0)
 
+    def test_scale_relative_gripper_threshold_on_normalized_states(self):
+        """Relative threshold should detect normalized packed grippers."""
+        T = 50
+        states = np.zeros((T, 16))
+        states[:, [7, 15]] = 1.0
+        states[20:, 7] = 0.0
+        sample = _make_sample(states)
+
+        op = RobotKeyFrameDetectorMapper(
+            gripper_dims=[7, 15],
+            gripper_delta_threshold=5.0,
+            gripper_delta_threshold_frac=0.05,
+            exempt_dims=[7, 15],
+            report_field=REPORT_FIELD,
+        )
+        result = op.process_single(sample)
+        report = json.loads(result[Fields.meta][REPORT_FIELD])
+        self.assertEqual(report["num_gripper_events"], 1)
+        self.assertIn(19, report["gripper_event_frames"])
+
     def test_velocity_peaks_detected(self):
         """Velocity peaks (sudden acceleration) should be detected."""
         T = 100

@@ -138,10 +138,13 @@ def build_process_ops(cfg: CleanConfig) -> List[Dict[str, Any]]:
                     "signal_source": "top_level",
                     "top_level_state_key": "states",
                     "top_level_action_key": "actions",
+                    "gripper_dims": list(cfg.check3_gripper_dims),
                     "gripper_delta_threshold": 5.0,
+                    "gripper_delta_threshold_frac": cfg.check3_gripper_delta_threshold_frac,
                     "gripper_close_direction": "decrease",
                     "state_velocity_percentile": 95.0,
                     "keyframe_window": 3,
+                    "exempt_dims": list(cfg.check3_gripper_dims),
                     "report_field": "key_frame_report",
                 }
             }

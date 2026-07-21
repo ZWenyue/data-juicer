@@ -37,13 +37,11 @@ analyze **只读探针**，不改原始数据：
 2. 计算 embodiment 全局分位数 → `percentiles.json`（供 Stage3）。
 3. 对每个 episode 跑 S1/S2/S3 的 `compute_stats_single`，收集标量统计。
 4. `suggest_numeric` → 推荐 S1/S2/S3 旗标。
-5. 抽样若干视频（默认 8 条、`PROBE_FPS=2`）跑帧质量打分，`suggest_video` → 推荐 Check3 旗标。
+5. 从全任务均匀分层抽样视频（默认 32 条、`PROBE_FPS=2`）跑帧质量打分，`suggest_video` → 推荐 Check3 旗标。
 6. 写入 `analysis.json` / `threshold_report.md`。
 
-常量（代码中）：
-
-- `TARGET_KEEP = 0.90`：Stage1 目标大约保留 90% episode
-- `DA_CANDIDATES = (0.60, 0.65, 0.70)`：Stage2 离散候选
+分析器采用保守的 Tukey outer fence，不再预设固定淘汰比例。
+`DA_CANDIDATES = (0.60, 0.65, 0.70)` 仅用于报告不同阈值下的敏感度。
 
 ---
 
@@ -74,13 +72,11 @@ keep = not (flagged_ratio > max_flagged_ratio or max_run > max_run_length)
 探针收集每个 episode 的 `sudden_change_flagged_ratio`、`sudden_change_max_run`，记为数组 `ratio`、`max_run`。
 
 ```text
-max_flagged_ratio = clip(percentile(ratio, 90), 0.05, 0.5)
-max_run_length    = max(默认10, ceil(percentile(max_run, 90)))
+max_flagged_ratio = max(默认0.3, q75(ratio) + 3·IQR(ratio), max(ratio))
+max_run_length    = max(默认10, ceil(q75(max_run) + 3·IQR(max_run)), max(max_run))
 ```
 
-含义：把阈值设在各 episode 统计分布的 **p90**，使约 90% 的 episode 落在阈值“内侧”，再对 ratio 夹紧到 `[0.05, 0.5]`，对 run 不低于默认 `10`。
-
-例如推荐 `0.0513`：多数 episode 突变帧占比很低，p90 只有约 5%，阈值比默认 `0.3` 更严。
+含义：以当前分析集的完整观测范围作为保守基线；报告仍展示离群分布，但自动建议不会在没有质量标签时删除当前数据。后续超出该基线的新 episode 才会触发门控。
 
 ---
 
@@ -98,16 +94,13 @@ max_run_length    = max(默认10, ceil(percentile(max_run, 90)))
 
 ### 推荐原理
 
-探针收集每个 episode 的 `state_action_min_da`（最差维 DA）。对候选阈值逐个估算丢弃率，选最接近 **10%** 丢弃的一档：
+探针收集每个 episode 的 `state_action_min_da`（最差维 DA）。候选阈值用于报告敏感度；推荐阈值采用低侧 outer fence，并限制在 `[0.5, 默认0.65]`：
 
 ```text
-候选 = {0.60, 0.65, 0.70}
-对每个 cand:
-  drop_frac = mean(min_da < cand)
-选 argmin |drop_frac - 0.10|
+da_threshold = min(默认0.65, q25(min_da) - 3·IQR(min_da), min(min_da))
 ```
 
-因此 `0.6` 是偏松档（要求更低、预计丢掉更少），`0.7` 更严。不是连续拟合，只在三档里挑。
+该策略只会放宽默认阈值，并以当前观测到的最低 DA 为基线，不会为了达到预设淘汰率主动收紧。
 
 ---
 
@@ -170,21 +163,21 @@ is_bad   = corrupt or blackness < blackness_threshold or blur < blur_threshold
 |---|---|---|
 | `check3_max_bad_ratio` | `0.1` | 坏帧占比上限 |
 | `check3_min_good_frames` | `20` | 好帧数下限 |
-| `check3_max_keyframe_overlap` | `0` | 坏帧与关键帧重叠上限 |
+| `check3_max_keyframe_overlap` | 禁用 | 默认仅报告重叠；显式设置后才作为删除门控 |
 
 | 参数 | 含义 | 默认 | 调大效果 |
 |---|---|---|---|
-| `--check3-blur-threshold` | Laplacian 方差低于此值 → 判模糊 | `50.0` | 更严 |
+| `--check3-blur-threshold` | Laplacian 方差低于此值 → 判模糊 | `1.0` | 更严 |
 | `--check3-blackness-threshold` | 灰度均值低于此值 → 判过黑 | `10.0` | 更严 |
 
 ### 推荐原理
 
-默认只对前 `PROBE_EPS`（默认 8）条视频、以 `PROBE_FPS`（默认 2）抽帧打分，汇总所有采样帧的 `blur`、`blackness`。
+默认从完整 episode 序列均匀抽取 `PROBE_EPS`（默认 32）条视频、以 `PROBE_FPS`（默认 2）抽帧打分，避免只看数据集前缀。
 
 **模糊阈值**（贴分布低尾，标出“明显比常态糊”的帧）：
 
 ```text
-blur_thr = max(1.0, percentile(blur, 2))   # 再 round 到 1 位小数
+blur_thr = max(1.0, q25(blur) - 3·IQR(blur))   # 再 round 到 1 位小数
 ```
 
 **黑帧阈值**（正常画面通常很亮；只有整体偏暗才下调）：
@@ -194,9 +187,9 @@ p01_black = percentile(black, 1)
 black_thr = 10.0 if p01_black >= 20.0 else max(1.0, p01_black * 0.5)
 ```
 
-例如 `blur=1045.1` 远高于默认 `50`：探针视频整体清晰，p2 很高，阈值被抬高 → 模糊判定更严。`blackness=10.0` 表示 p01 亮度仍 ≥ 20，保持默认黑帧线。
+该阈值只捕获与主体清晰度分布明显分离的低侧离群帧，不再按 p2 固定把一部分健康帧标坏。
 
-报告里还会用建议阈值估算 Check3 丢 episode 比例（抽帧结果按 `original_fps/sampling_fps` 外推全长好帧数；**未含**关键帧污染门控，全量清洗以实际结果为准）。
+报告里还会用建议阈值估算 Check3 丢 episode 比例（抽帧结果按 `original_fps/sampling_fps` 外推全长好帧数；默认关键帧重叠只报告，不参与删除）。
 
 ---
 
@@ -204,11 +197,11 @@ black_thr = 10.0 if p01_black >= 20.0 else max(1.0, p01_black * 0.5)
 
 | 旗标 | 对应算子 | 清洗时作用 | 推荐怎么算 |
 |---|---|---|---|
-| `--s1-max-flagged-ratio` | `robot_sudden_change_filter` | `flagged_ratio > thr` → 丢 | `clip(p90(ratio), 0.05, 0.5)` |
-| `--s1-max-run-length` | `robot_sudden_change_filter` | `max_run > thr` → 丢 | `max(10, ceil(p90(max_run)))` |
-| `--s2-da-threshold` | `robot_state_action_alignment_filter` | 任一维 `da < thr` → 丢 | `{0.6,0.65,0.7}` 中选丢弃率≈10% |
+| `--s1-max-flagged-ratio` | `robot_sudden_change_filter` | `flagged_ratio > thr` → 丢 | `max(0.3, q75+3·IQR, observed_max)` |
+| `--s1-max-run-length` | `robot_sudden_change_filter` | `max_run > thr` → 丢 | `max(10, ceil(q75+3·IQR), observed_max)` |
+| `--s2-da-threshold` | `robot_state_action_alignment_filter` | 任一维 `da < thr` → 丢 | `min(0.65, q25-3·IQR, observed_min)` |
 | `--s3-alpha` | `robot_extreme_value_filter` | 带宽 = `α·IQR` | 按探针 `mean_ev` 选 `{0.1,0.2,0.3}` |
-| `--check3-blur-threshold` | `robot_frame_quality_scorer_mapper` | `laplacian_var < thr` → 坏帧 | `max(1, p2(blur))` |
+| `--check3-blur-threshold` | `robot_frame_quality_scorer_mapper` | `laplacian_var < thr` → 坏帧 | `max(1, q25-3·IQR)` |
 | `--check3-blackness-threshold` | `robot_frame_quality_scorer_mapper` | `mean_gray < thr` → 坏帧 | 默认 10；画面很暗时用 `0.5·p01` |
 
 前四个管数值轨迹是否保留整条 episode；后两个管视频帧如何标坏，再交给 Check3 episode 门控决定去留。

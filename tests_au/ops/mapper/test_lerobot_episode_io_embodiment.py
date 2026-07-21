@@ -10,8 +10,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from data_juicer._au.utils.embodiment_layout import (  # noqa: E402
+    load_embodiment_config,
+    pack_episode_to_80,
+)
 from data_juicer._au.utils.lerobot_episode_io import (  # noqa: E402
     CLEAN_SIGNAL_DIM,
+    episode_arrays_from_embodiment,
     load_episode_arrays,
     resolve_video_key,
 )
@@ -24,6 +29,43 @@ SIM_R1PRO_AVAILABLE = os.path.isdir(os.path.join(SIM_R1PRO_DATASET_DIR, "data", 
 
 GALAXEA_LITE_DIR = "/mnt/r/DATA/tst/Galaxea-Open-World-Dataset/Connect_Router_Cables_20250625_002"
 GALAXEA_LITE_AVAILABLE = os.path.isdir(os.path.join(GALAXEA_LITE_DIR, "data", "chunk-000"))
+
+
+class TestLoadCanonical80(unittest.TestCase):
+    def test_canonical80_is_not_sliced_as_raw_embodiment_input(self):
+        import pandas as pd
+
+        states = np.zeros((3, 80), dtype=float)
+        actions = np.zeros((3, 80), dtype=float)
+        masks = np.zeros((3, 80), dtype=float)
+        states[:, 0:7] = np.arange(7)
+        states[:, 16] = 0.25
+        states[:, 29:36] = np.arange(10, 17)
+        states[:, 45] = 0.75
+        actions[:] = states + 1.0
+        masks[:, [0, 16, 29, 45]] = 1.0
+        df = pd.DataFrame(
+            {
+                "observation.state": states.tolist(),
+                "action": actions.tolist(),
+                "action_dim_mask": masks.tolist(),
+            }
+        )
+
+        clean_states, clean_actions = episode_arrays_from_embodiment(df, "aloha")
+
+        self.assertEqual(clean_states.shape, (3, CLEAN_SIGNAL_DIM))
+        expected = np.concatenate([np.arange(7), [0.25], np.arange(10, 17), [0.75]])
+        np.testing.assert_allclose(clean_states[0], expected)
+        np.testing.assert_allclose(clean_actions[0], expected + 1.0)
+
+        packed_states, packed_actions, packed_masks = pack_episode_to_80(
+            df,
+            load_embodiment_config("aloha"),
+        )
+        np.testing.assert_allclose(packed_states, states)
+        np.testing.assert_allclose(packed_actions, actions)
+        np.testing.assert_allclose(packed_masks, masks)
 
 
 @unittest.skipUnless(SIM_R1PRO_AVAILABLE, "GR00T sim R1 Pro dataset not found")
