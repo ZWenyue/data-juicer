@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Export kept cleaned episodes to full LeRobot v2.1 80-dim layout.
+"""Export episodes to full LeRobot v2.1 80-dim layout.
 
-Layout (same as tests_au/ops/mapper/export_unified_parquets.py):
+Two modes:
+
+1. **cleaned-kept** (pretrain): export episodes listed in ``cleaned.jsonl``.
+2. **keep-all / pad-only** (post-train): export every episode under the source
+   task — same 80-dim packing, no Stage1/2/3/5 or Check3 filtering.
+
+Layout:
 
   OUT/<task>/
     data/chunk-XXX/episode_YYYYYY.parquet
     meta/
       info.json
-      episodes.jsonl          # filtered to kept episodes
+      episodes.jsonl
       tasks.jsonl
       episodes_stats.jsonl
     videos -> <source videos> # symlink
@@ -27,7 +33,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pyarrow as pa
@@ -39,7 +45,7 @@ from ...utils.embodiment_prompt import (
     load_tasks_map,
     write_episodes_jsonl_with_prompt_fields,
 )
-from ...utils.lerobot_episode_io import resolve_video_key
+from ...utils.lerobot_episode_io import list_episode_parquets, resolve_video_key
 
 _INDEX_COLS = (
     "timestamp",
@@ -150,6 +156,7 @@ def _write_task_meta(
     episode_results: List[Dict[str, Any]],
     link_videos: bool = True,
     source_clean_jsonl: Optional[str] = None,
+    export_mode: str = "cleaned_kept",
 ) -> dict:
     meta_dir = task_out / "meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
@@ -243,6 +250,7 @@ def _write_task_meta(
         "features": features,
         "unified_embodiment": embodiment,
         "unified_dim": UNIFIED_DIM,
+        "unified_export_mode": export_mode,
     }
     if source_clean_jsonl:
         info["source_clean_jsonl"] = source_clean_jsonl
@@ -306,6 +314,86 @@ def _export_one_episode(src_parquet: str, dst_parquet: Path, cfg: dict) -> dict:
     }
 
 
+def _resolve_task_out(dataset: str, output_dir: str) -> tuple[Path, Path]:
+    """Return ``(src_root, task_out)``.
+
+    ``output_dir`` may be the task output root itself, or a parent that will
+    hold ``<task_name>/``.
+    """
+    src_root = Path(dataset).resolve()
+    task_name = src_root.name
+    out_root = Path(output_dir)
+    if out_root.name == task_name:
+        task_out = out_root
+    else:
+        task_out = out_root / task_name
+    return src_root, task_out
+
+
+def _export_parquet_paths(
+    parquet_paths: Sequence[str],
+    dataset: str,
+    output_dir: str,
+    embodiment: str,
+    link_videos: bool,
+    export_mode: str,
+    source_clean_jsonl: Optional[str] = None,
+    extra_summary: Optional[Dict[str, Any]] = None,
+) -> dict:
+    """Pack a list of source episode parquets into a unified80 LeRobot task."""
+    if not parquet_paths:
+        raise RuntimeError(f"No episode parquets to export for dataset={dataset}")
+
+    cfg = load_embodiment_config(embodiment)
+    src_root, task_out = _resolve_task_out(dataset, output_dir)
+
+    episode_results: List[Dict[str, Any]] = []
+    for pf in parquet_paths:
+        src = Path(pf).resolve()
+        chunk = src.parent.name
+        dst = task_out / "data" / chunk / src.name
+        if not dst.name.endswith(".parquet"):
+            dst = dst.with_suffix(".parquet")
+        episode_results.append(_export_one_episode(str(src), dst, cfg))
+
+    meta_info = _write_task_meta(
+        task_out,
+        src_root,
+        embodiment,
+        episode_results,
+        link_videos=link_videos,
+        source_clean_jsonl=source_clean_jsonl,
+        export_mode=export_mode,
+    )
+
+    summary: Dict[str, Any] = {
+        "kept_episodes": len(episode_results),
+        "total_frames": meta_info["frames"],
+        "out": str(task_out),
+        "embodiment": embodiment,
+        "export_mode": export_mode,
+        "mask_active": episode_results[0]["active"] if episode_results else 0,
+        "layout": "LeRobot v2.1 (data/ + meta/ + videos symlink)",
+        "videos_link": meta_info.get("videos_link"),
+        "episodes_jsonl": meta_info.get("episodes_jsonl"),
+    }
+    if source_clean_jsonl is not None:
+        summary["result_jsonl"] = source_clean_jsonl
+    if extra_summary:
+        summary.update(extra_summary)
+
+    task_out.parent.mkdir(parents=True, exist_ok=True)
+    (task_out.parent / "export_summary.json").write_text(
+        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    logger.info(
+        f"Exported {summary['kept_episodes']} episodes [{export_mode}] "
+        f"({summary['total_frames']} frames, mask_active={summary['mask_active']}/{UNIFIED_DIM}) "
+        f"-> {task_out}"
+    )
+    return summary
+
+
 def export_kept_unified_parquets(
     result_jsonl: str,
     dataset: str,
@@ -323,78 +411,99 @@ def export_kept_unified_parquets(
     if not rows:
         raise RuntimeError(f"Empty cleaned result: {result_jsonl}")
 
-    cfg = load_embodiment_config(embodiment)
-    src_root = Path(dataset).resolve()
-    task_name = src_root.name
-    out_root = Path(output_dir)
-    # If caller passed .../unified80_lerobot (parent), nest under task name;
-    # if they passed the task dir itself, write directly there.
-    if out_root.name == task_name:
-        task_out = out_root
-    else:
-        task_out = out_root / task_name
-
-    episode_results: List[Dict[str, Any]] = []
+    parquet_paths: List[str] = []
     for r in rows:
-        src = Path(r["parquet_path"]).resolve()
-        chunk = src.parent.name
-        # Always write episode_XXXXXX.parquet (not stem without suffix).
-        dst = task_out / "data" / chunk / src.name
-        if not dst.name.endswith(".parquet"):
-            dst = dst.with_suffix(".parquet")
-        episode_results.append(_export_one_episode(str(src), dst, cfg))
+        if "parquet_path" not in r:
+            raise KeyError(f"cleaned row missing parquet_path: keys={sorted(r)}")
+        parquet_paths.append(str(Path(r["parquet_path"]).resolve()))
 
-    meta_info = _write_task_meta(
-        task_out,
-        src_root,
-        embodiment,
-        episode_results,
+    return _export_parquet_paths(
+        parquet_paths,
+        dataset=dataset,
+        output_dir=output_dir,
+        embodiment=embodiment,
         link_videos=link_videos,
+        export_mode="cleaned_kept",
         source_clean_jsonl=str(result_jsonl),
     )
 
-    summary = {
-        "kept_episodes": len(episode_results),
-        "total_frames": meta_info["frames"],
-        "out": str(task_out),
-        "result_jsonl": str(result_jsonl),
-        "embodiment": embodiment,
-        "mask_active": episode_results[0]["active"] if episode_results else 0,
-        "layout": "LeRobot v2.1 (data/ + meta/ + videos symlink)",
-        "videos_link": meta_info.get("videos_link"),
-        "episodes_jsonl": meta_info.get("episodes_jsonl"),
-    }
-    out_root.mkdir(parents=True, exist_ok=True)
-    # Prefer summary next to task_out when nested; also write under out_root.
-    (task_out.parent / "export_summary.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+
+def export_all_unified_parquets(
+    dataset: str,
+    output_dir: str,
+    embodiment: str = "galaxea_r1_lite",
+    link_videos: bool = True,
+    max_episodes: Optional[int] = None,
+) -> dict:
+    """Pad-only export: every source episode → unified80 LeRobot layout.
+
+    No Stage1/2/3/5 or Check3 filtering. Intended for post-training data prep
+    that needs the same 80-dim layout as the pretrain clean pipeline.
+    """
+    files = list_episode_parquets(dataset, max_files=max_episodes)
+    if not files:
+        pattern = str(Path(dataset) / "data" / "chunk-*" / "episode_*.parquet")
+        raise FileNotFoundError(f"No episode parquet under {dataset} (glob {pattern})")
+
+    return _export_parquet_paths(
+        files,
+        dataset=dataset,
+        output_dir=output_dir,
+        embodiment=embodiment,
+        link_videos=link_videos,
+        export_mode="keep_all",
+        extra_summary={"dataset": str(Path(dataset).resolve()), "max_episodes": max_episodes},
     )
-    logger.info(
-        f"Exported {summary['kept_episodes']} kept episodes "
-        f"({summary['total_frames']} frames, mask_active={summary['mask_active']}/{UNIFIED_DIM}) "
-        f"-> {task_out}"
-    )
-    return summary
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
-        description="Convert cleaned.jsonl kept episodes → LeRobot v2.1 80-dim layout."
+        description=(
+            "Export LeRobot episodes to unified 80-dim layout. "
+            "Use --cleaned for kept-after-clean export, or --keep-all for pad-only."
+        )
     )
-    p.add_argument("--cleaned", required=True, help="Path to cleaned.jsonl")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument(
+        "--cleaned",
+        default=None,
+        help="Path to cleaned.jsonl (export only kept episodes).",
+    )
+    src.add_argument(
+        "--keep-all",
+        action="store_true",
+        help="Pad-only: export every episode under --dataset (no cleaning).",
+    )
     p.add_argument("--dataset", required=True, help="Source LeRobot task dir")
     p.add_argument("--output", required=True, help="Output task dir or parent dir")
     p.add_argument("--embodiment", default="galaxea_r1_lite")
     p.add_argument("--no-link-videos", action="store_true")
+    p.add_argument(
+        "--max-episodes",
+        type=int,
+        default=None,
+        help="Only with --keep-all: cap number of episodes (smoke tests).",
+    )
     args = p.parse_args(argv)
 
-    summary = export_kept_unified_parquets(
-        args.cleaned,
-        args.dataset,
-        args.output,
-        embodiment=args.embodiment,
-        link_videos=not args.no_link_videos,
-    )
+    if args.keep_all:
+        summary = export_all_unified_parquets(
+            args.dataset,
+            args.output,
+            embodiment=args.embodiment,
+            link_videos=not args.no_link_videos,
+            max_episodes=args.max_episodes,
+        )
+    else:
+        if args.max_episodes is not None:
+            logger.warning("--max-episodes is ignored with --cleaned (use cleaned.jsonl filtering).")
+        summary = export_kept_unified_parquets(
+            args.cleaned,
+            args.dataset,
+            args.output,
+            embodiment=args.embodiment,
+            link_videos=not args.no_link_videos,
+        )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 

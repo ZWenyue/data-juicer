@@ -1,15 +1,19 @@
 # 机器人数据处理脚本使用说明
 
-本文说明本目录下 4 个批处理脚本的用途和用法：
+本文说明本目录下批处理脚本的用途和用法：
 
 - `robot_data_analyze.sh`：分析各任务并推荐清洗阈值。
-- `robot_data_clean.sh`：按推荐阈值批量清洗任务。
+- `robot_data_clean.sh`：按推荐阈值批量清洗任务（预训练）。
 - `robot_data_export_unified.sh`：将清洗结果导出为 80 维统一 LeRobot v2.1 数据。
+- `robot_data_pad_unified.sh`：后训练用——全量 episode 仅做 80 维 padding，不做清洗。
 - `robot_data_merge_lerobot.sh`：将多个 unified80 任务根目录合并为一个 LeRobot v2.1 数据集。
 
-清洗阈值参数含义见 [ROBOT_CLEAN_FLAGS.md](./ROBOT_CLEAN_FLAGS.md)。
+清洗阈值参数含义见 [ROBOT_CLEAN_FLAGS.md](./ROBOT_CLEAN_FLAGS.md)。  
+后训练 pad-only 设计见 [data_impl_pad_unified80.md](../d/QwenRobotmanip/data_impl_pad_unified80.md)。
 
 ## 1. 推荐处理流程
+
+### 1.A 预训练（清洗 + unified80）
 
 ```mermaid
 flowchart LR
@@ -35,6 +39,22 @@ bash robot_data_merge_lerobot.sh
 
 `robot_data_clean.sh` 对已支持的机器人布局默认启用 `--export-unified-parquet`，因此一般不需要再执行 `robot_data_export_unified.sh`。后者主要用于已有 `cleaned.jsonl` 的补导出、重新导出或兼容旧清洗结果。
 
+### 1.B 后训练（仅 padding 到 80 维）
+
+```mermaid
+flowchart LR
+    A2[原始 LeRobot 任务] --> P[robot_data_pad_unified.sh]
+    P --> G2[各任务 unified80 全量]
+    G2 --> H2[robot_data_merge_lerobot.sh]
+    H2 --> I2[后训练合并数据集]
+```
+
+```bash
+bash robot_data_pad_unified.sh
+bash robot_data_merge_lerobot.sh
+```
+
+该路径**不**跑 Stage1/2/3/5 与 Check3，保留全部 episode，布局与预训练 unified80 一致。
 ## 2. 运行要求
 
 ### 2.1 Python 环境
@@ -230,13 +250,73 @@ bash robot_data_clean.sh \
 
 实际结果文件在分片场景下可能带有额外后缀，请以 `run_summary.json` 中的 `result` 字段为准。
 
-## 5. 单独导出 unified80
+## 5. 后训练：仅 pad 到 unified80
 
 ### 5.1 功能
 
-`robot_data_export_unified.sh` 读取各清洗任务的 `cleaned.jsonl`，仅导出保留的 episode，并将状态、动作和 mask 映射到统一 80 维布局。
+`robot_data_pad_unified.sh` 遍历原始任务，对**全部** episode 做 80 维 padding（`pack_episode_to_80`），不进行任何清洗或过滤。输出布局与清洗后的 unified80 相同，可供后训练或直接合并。
 
 ### 5.2 基本用法
+
+```bash
+bash robot_data_pad_unified.sh
+```
+
+指定路径：
+
+```bash
+DATASET_ROOT=/path/to/tasks \
+OUT_ROOT=/path/to/process_pad_unified80 \
+  bash robot_data_pad_unified.sh
+```
+
+小规模试跑（每任务最多 N 个 episode）：
+
+```bash
+MAX_EPS=2 bash robot_data_pad_unified.sh
+```
+
+单任务底层调用：
+
+```bash
+.venv/bin/python -m data_juicer._au.pipeline.robot_clean.export_unified \
+  --keep-all \
+  --dataset /path/to/task \
+  --output /path/to/out/task \
+  --embodiment galaxea_r1_lite
+```
+
+### 5.3 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DATASET_ROOT` | `.../press` | 原始任务根目录 |
+| `OUT_ROOT` | `.../process_pad_unified80` | pad 输出根目录 |
+| `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
+| `MAX_EPS` | 空 | 非空时限制每任务导出的 episode 数 |
+
+### 5.4 输出
+
+```text
+<OUT_ROOT>/<task>/
+├── data/chunk-XXX/episode_YYYYYY.parquet
+├── meta/
+│   ├── info.json              # unified_export_mode=keep_all
+│   ├── episodes.jsonl
+│   ├── tasks.jsonl
+│   └── episodes_stats.jsonl
+└── videos -> <源任务 videos>
+```
+
+设计细节见 [data_impl_pad_unified80.md](../d/QwenRobotmanip/data_impl_pad_unified80.md)。
+
+## 6. 单独导出 unified80（清洗后 kept）
+
+### 6.1 功能
+
+`robot_data_export_unified.sh` 读取各清洗任务的 `cleaned.jsonl`，仅导出保留的 episode，并将状态、动作和 mask 映射到统一 80 维布局。
+
+### 6.2 基本用法
 
 ```bash
 bash robot_data_export_unified.sh
@@ -251,7 +331,7 @@ OUT_ROOT=/path/to/unified80 \
 bash robot_data_export_unified.sh
 ```
 
-### 5.3 环境变量
+### 6.3 环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -260,7 +340,7 @@ bash robot_data_export_unified.sh
 | `OUT_ROOT` | `.../process_clean/unified80` | unified80 输出根目录 |
 | `DJ_VENV` | `<repo>/.venv` | Python 虚拟环境根目录 |
 
-### 5.4 输出
+### 6.4 输出
 
 ```text
 <OUT_ROOT>/<task>/
@@ -277,9 +357,9 @@ bash robot_data_export_unified.sh
 
 任务缺少 `cleaned.jsonl`、源 `data/` 或受支持的 embodiment 布局时会被跳过，并在结束时打印导出和跳过数量。
 
-## 6. 合并 unified80 数据集
+## 7. 合并 unified80 数据集
 
-### 6.1 功能
+### 7.1 功能
 
 `robot_data_merge_lerobot.sh` 将两个 unified80 根目录中的任务合并为单一 LeRobot v2.1 数据集，同时重新编号：
 
@@ -290,7 +370,7 @@ bash robot_data_export_unified.sh
 
 输出目录必须是不存在或为空的新目录，避免覆盖已有合并结果。
 
-### 6.2 基本用法
+### 7.2 基本用法
 
 ```bash
 bash robot_data_merge_lerobot.sh
@@ -331,7 +411,7 @@ VIDEO_POLICY=none bash robot_data_merge_lerobot.sh
 LINK_MODE=copy bash robot_data_merge_lerobot.sh
 ```
 
-### 6.3 环境变量
+### 7.3 环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -345,7 +425,7 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 | `MAX_EPS` | 空 | 每个任务最多处理的 episode 数 |
 | `DRY_RUN` | `0` | `1` 或 `true` 时只检查和统计，不正式写出 |
 
-### 6.4 输出
+### 7.4 输出
 
 ```text
 <OUT_ROOT>/
@@ -362,9 +442,9 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 
 `sources.jsonl` 记录合并后数据与原始任务的来源关系，`merge_summary.json` 记录任务数、episode 数、帧数及合并配置。
 
-## 7. 完整示例
+## 8. 完整示例
 
-以下示例把分析、清洗、统一导出和合并结果分别放到独立目录：
+### 8.1 预训练：分析 → 清洗 → 合并
 
 ```bash
 # 默认使用 <repo>/.venv；如需覆盖：
@@ -399,7 +479,22 @@ OUT_ROOT=/mnt/r/DATA/merged_unified80 \
   bash robot_data_merge_lerobot.sh
 ```
 
-## 8. 常见问题
+### 8.2 后训练：仅 pad → 合并
+
+```bash
+export DATASET_ROOT=/mnt/r/DATA/my_robot_dataset/tasks
+
+DATASET_ROOT="$DATASET_ROOT" \
+OUT_ROOT=/mnt/r/DATA/my_robot_dataset/process/pad_unified80 \
+  bash robot_data_pad_unified.sh
+
+ROOT_SIM=/mnt/r/DATA/my_robot_dataset/process/pad_unified80 \
+ROOT_GLX=/mnt/r/DATA/other/process/pad_unified80 \
+OUT_ROOT=/mnt/r/DATA/merged_posttrain_unified80 \
+  bash robot_data_merge_lerobot.sh
+```
+
+## 9. 常见问题
 
 ### 任务被直接跳过
 
@@ -444,6 +539,7 @@ LINK_MODE=copy bash robot_data_merge_lerobot.sh
 
 .venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.export_unified --help
+# pad-only: 加 --keep-all；清洗后导出: 加 --cleaned <jsonl>
 
 .venv/bin/python -m \
   data_juicer._au.pipeline.robot_clean.merge_lerobot --help
