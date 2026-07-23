@@ -1,4 +1,4 @@
-"""Regression tests for conservative robot-clean threshold analysis."""
+"""Regression tests for robot-clean threshold analysis."""
 
 import unittest
 from tempfile import TemporaryDirectory
@@ -16,38 +16,67 @@ from data_juicer._au.pipeline.robot_clean.recipe import build_process_ops
 
 class RobotCleanAnalyzeTest(unittest.TestCase):
 
-    def test_numeric_thresholds_do_not_reject_a_fixed_healthy_tail(self):
+    def test_numeric_thresholds_reject_extreme_tail_and_record_reasons(self):
         rows = []
         for i in range(20):
             rows.append(
                 {
+                    "id": f"healthy_{i:02d}",
                     "stats": {
                         "sudden_change_flagged_ratio": 0.01 + i * 0.001,
                         "sudden_change_max_run": 1 + i % 4,
                         "state_action_min_da": 0.95,
                         "state_action_mean_da": 0.98,
                         "extreme_value_flagged_ratio": 0.01,
-                    }
+                    },
                 }
             )
         rows.append(
             {
+                "id": "bad_outlier",
                 "stats": {
                     "sudden_change_flagged_ratio": 0.8,
                     "sudden_change_max_run": 100,
                     "state_action_min_da": 0.1,
                     "state_action_mean_da": 0.5,
                     "extreme_value_flagged_ratio": 0.01,
-                }
+                },
             }
         )
 
         result = suggest_numeric(rows, probe_alpha=0.1)
 
-        self.assertEqual(result["threshold_policy"], "conservative_observed_envelope")
-        self.assertGreaterEqual(result["max_flagged_ratio"], 0.3)
-        self.assertGreaterEqual(result["max_run_length"], 10)
-        self.assertEqual(result["wash"]["numeric_union_episode_drop_frac"], 0.0)
+        self.assertEqual(
+            result["threshold_policy"], "s1_percentile_auto_reject_and_review"
+        )
+        self.assertLess(result["max_flagged_ratio"], 0.8)
+        self.assertLess(result["max_run_length"], 100)
+        self.assertAlmostEqual(result["wash"]["numeric_union_episode_drop_frac"], 1 / 21)
+        decision = next(item for item in result["episode_decisions"] if item["id"] == "bad_outlier")
+        self.assertEqual(decision["decision"], "auto_reject")
+        self.assertIn("stage1_flagged_ratio", decision["auto_reject_reasons"])
+        self.assertIn("stage1_max_run", decision["auto_reject_reasons"])
+
+    def test_numeric_threshold_percentiles_must_be_ordered(self):
+        rows = [
+            {
+                "stats": {
+                    "sudden_change_flagged_ratio": 0.1,
+                    "sudden_change_max_run": 1,
+                    "state_action_min_da": 0.9,
+                    "state_action_mean_da": 0.9,
+                    "extreme_value_flagged_ratio": 0.0,
+                }
+            }
+        ]
+
+        with self.assertRaises(ValueError):
+            suggest_numeric(
+                rows,
+                probe_alpha=0.1,
+                s1_auto_reject_percentile=97.5,
+                s1_review_percentile=99.0,
+            )
 
     def test_video_threshold_does_not_mark_a_fixed_percentile_bad(self):
         blur = np.linspace(9.8, 10.2, 100)

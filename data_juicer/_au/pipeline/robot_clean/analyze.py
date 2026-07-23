@@ -50,17 +50,6 @@ def _pcts(x: np.ndarray) -> Dict[str, float]:
     }
 
 
-def _upper_outer_fence(
-    values: np.ndarray,
-    floor: float,
-    ceiling: Optional[float] = None,
-) -> float:
-    """Conservative upper outlier fence without a fixed rejection quota."""
-    q25, q75 = np.percentile(np.asarray(values, dtype=float), [25, 75])
-    fence = max(float(floor), float(q75 + 3.0 * (q75 - q25)))
-    return min(fence, float(ceiling)) if ceiling is not None else fence
-
-
 def _lower_outer_fence(
     values: np.ndarray,
     floor: float,
@@ -143,8 +132,16 @@ def suggest_numeric(
     s1_max_run_length: int = 10,
     s2_da_threshold: float = 0.65,
     s3_max_flagged_ratio: float = 0.3,
+    s1_auto_reject_percentile: float = 99.0,
+    s1_review_percentile: float = 97.5,
 ) -> Dict[str, Any]:
     """Suggest S1/S2/S3 thresholds from collected per-episode stats."""
+    if not 0.0 < s1_review_percentile < s1_auto_reject_percentile < 100.0:
+        raise ValueError(
+            "Require 0 < s1_review_percentile < "
+            "s1_auto_reject_percentile < 100"
+        )
+
     n = len(rows)
     ratio = np.array([r["stats"]["sudden_change_flagged_ratio"] for r in rows], dtype=float)
     max_run = np.array([r["stats"]["sudden_change_max_run"] for r in rows], dtype=float)
@@ -152,23 +149,16 @@ def suggest_numeric(
     mean_da = np.array([r["stats"]["state_action_mean_da"] for r in rows], dtype=float)
     ev = np.array([r["stats"]["extreme_value_flagged_ratio"] for r in rows], dtype=float)
 
-    # A percentile threshold rejects a fixed tail even when every episode is
-    # healthy.  Use a conservative Tukey outer fence and never tighten the
-    # production defaults merely because this dataset has low variance.
-    max_flagged_ratio = _upper_outer_fence(
-        ratio,
-        floor=s1_max_flagged_ratio,
-        ceiling=1.0,
-    )
-    max_flagged_ratio = min(1.0, max(max_flagged_ratio, float(np.max(ratio))))
-    suggested_max_run = int(
-        np.ceil(
-            max(
-                _upper_outer_fence(max_run, floor=s1_max_run_length),
-                float(np.max(max_run)),
-            )
-        )
-    )
+    # Stage1 uses a two-level policy.  The p99 thresholds are passed to the
+    # cleaner for high-precision automatic rejection; p97.5 is a wider review
+    # band written to analysis.json.  The previous observed-envelope policy
+    # raised thresholds to the sample maximum, mathematically preventing S1
+    # from rejecting any episode in the dataset used for analysis.
+    del s1_max_flagged_ratio, s1_max_run_length  # retained for API compatibility
+    max_flagged_ratio = round(float(np.percentile(ratio, s1_auto_reject_percentile)), 4)
+    suggested_max_run = int(np.ceil(np.percentile(max_run, s1_auto_reject_percentile)))
+    review_max_flagged_ratio = round(float(np.percentile(ratio, s1_review_percentile)), 4)
+    review_max_run = int(np.ceil(np.percentile(max_run, s1_review_percentile)))
 
     da_table = []
     for cand in DA_CANDIDATES:
@@ -205,12 +195,50 @@ def suggest_numeric(
     s2_rej = min_da < best_da
     s3_rej = ev > float(s3_max_flagged_ratio)
     numeric_union = s1_rej | s2_rej | s3_rej
+    s1_review = (ratio > review_max_flagged_ratio) | (max_run > review_max_run)
+
+    episode_decisions = []
+    for idx, row in enumerate(rows):
+        auto_reject_reasons = []
+        review_reasons = []
+        if ratio[idx] > max_flagged_ratio:
+            auto_reject_reasons.append("stage1_flagged_ratio")
+        if max_run[idx] > suggested_max_run:
+            auto_reject_reasons.append("stage1_max_run")
+        if s2_rej[idx]:
+            auto_reject_reasons.append("stage2_state_action_alignment")
+        if s3_rej[idx]:
+            auto_reject_reasons.append("stage3_extreme_value")
+        if ratio[idx] > review_max_flagged_ratio:
+            review_reasons.append("stage1_flagged_ratio")
+        if max_run[idx] > review_max_run:
+            review_reasons.append("stage1_max_run")
+
+        if auto_reject_reasons or review_reasons:
+            episode_decisions.append(
+                {
+                    "id": row.get("id", f"episode_{idx:06d}"),
+                    "decision": ("auto_reject" if auto_reject_reasons else "review"),
+                    "auto_reject_reasons": auto_reject_reasons,
+                    "review_reasons": review_reasons,
+                    "metrics": {
+                        "s1_flagged_ratio": float(ratio[idx]),
+                        "s1_max_run": int(max_run[idx]),
+                        "s2_min_da": float(min_da[idx]),
+                        "s3_flagged_ratio": float(ev[idx]),
+                    },
+                }
+            )
 
     return {
         "n_episodes": n,
-        "threshold_policy": "conservative_observed_envelope",
+        "threshold_policy": "s1_percentile_auto_reject_and_review",
+        "s1_auto_reject_percentile": float(s1_auto_reject_percentile),
+        "s1_review_percentile": float(s1_review_percentile),
         "max_flagged_ratio": round(max_flagged_ratio, 4),
         "max_run_length": int(suggested_max_run),
+        "review_max_flagged_ratio": review_max_flagged_ratio,
+        "review_max_run_length": review_max_run,
         "da_threshold": round(best_da, 4),
         "alpha": alpha,
         "s3_max_flagged_ratio": float(s3_max_flagged_ratio),
@@ -222,9 +250,11 @@ def suggest_numeric(
         "s2_da_table": da_table,
         "s3_ev_pcts": _pcts(ev),
         "s3_mean_flagged_ratio": mean_ev,
+        "episode_decisions": episode_decisions,
         "wash": {
             "s1_mean_flagged_frame_frac": float(np.mean(ratio)),
             "s1_episode_drop_frac": float(np.mean(s1_rej)),
+            "s1_review_episode_frac": float(np.mean(s1_review & ~numeric_union)),
             "s2_episode_drop_frac": float(np.mean(s2_rej)),
             "s3_mean_flagged_frame_frac": mean_ev,
             "s3_episode_drop_frac": float(np.mean(s3_rej)),
@@ -393,6 +423,8 @@ def analyze_task(
     probe_sampling_fps: float = 2.0,
     probe_alpha: float = 0.1,
     analyze_video: bool = True,
+    s1_auto_reject_percentile: float = 99.0,
+    s1_review_percentile: float = 97.5,
 ) -> Dict[str, Any]:
     out_dir = Path(output)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -423,10 +455,12 @@ def analyze_task(
         s1_max_run_length=cfg.s1_max_run_length,
         s2_da_threshold=cfg.s2_da_threshold,
         s3_max_flagged_ratio=cfg.s3_max_flagged_ratio,
+        s1_auto_reject_percentile=s1_auto_reject_percentile,
+        s1_review_percentile=s1_review_percentile,
     )
 
     result: Dict[str, Any] = {
-        "analysis_version": 2,
+        "analysis_version": 3,
         "dataset": str(Path(dataset).resolve()),
         "embodiment": embodiment,
         "video_key": resolved_video_key,
@@ -501,6 +535,7 @@ def analyze_task(
             "stage1": {
                 "strategy": cfg.s1_exclusion_strategy,
                 "episode_drop_frac": nw["s1_episode_drop_frac"],
+                "review_episode_frac": nw["s1_review_episode_frac"],
                 "mean_flagged_frame_frac": nw["s1_mean_flagged_frame_frac"],
             },
             "stage2": {
@@ -562,7 +597,8 @@ def _write_markdown(result: Dict[str, Any], path: Path) -> None:
         lines.append(
             f"| Stage1 突变 | `{s1.get('strategy')}` | "
             f"{s1.get('episode_drop_frac', 0):.1%} | "
-            f"标记帧均值 {s1.get('mean_flagged_frame_frac', 0):.1%} |\n"
+            f"标记帧均值 {s1.get('mean_flagged_frame_frac', 0):.1%}；"
+            f"另有 {s1.get('review_episode_frac', 0):.1%} 进入复查区间 |\n"
         )
         lines.append(
             f"| Stage2 对齐 | `{s2.get('strategy')}` | "
@@ -590,9 +626,17 @@ def _write_markdown(result: Dict[str, Any], path: Path) -> None:
     lines.append("\n## Stage1 突变\n")
     p = num["s1_ratio_pcts"]
     lines.append(f"flagged_ratio: p50={p['p50']:.3f} p90={p['p90']:.3f} max={p['max']:.3f}\n\n")
+    lines.append(
+        f"自动清洗采用 p{num['s1_auto_reject_percentile']:g}，" f"人工复查采用 p{num['s1_review_percentile']:g}。\n\n"
+    )
     lines.append(f"**建议 `--s1-max-flagged-ratio {num['max_flagged_ratio']}`**\n")
     if num.get("max_run_length") is not None:
         lines.append(f"**建议 `--s1-max-run-length {num['max_run_length']}`**\n")
+    lines.append(
+        f"\n复查区间：`flagged_ratio > {num['review_max_flagged_ratio']}` "
+        f"或 `max_run_length > {num['review_max_run_length']}`；"
+        "逐 episode 原因见 `analysis.json.numeric.episode_decisions`。\n"
+    )
 
     lines.append("\n## Stage2 状态-动作对齐\n")
     lines.append("| da_threshold | drop_frac |\n|---|---|\n")
@@ -664,6 +708,18 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument("--probe-sampling-fps", type=float, default=2.0, help="Sampling fps for video probe")
     p.add_argument("--probe-alpha", type=float, default=0.1, help="Stage3 alpha used while probing")
+    p.add_argument(
+        "--s1-auto-reject-percentile",
+        type=float,
+        default=99.0,
+        help="Stage1 percentile used for automatic episode rejection",
+    )
+    p.add_argument(
+        "--s1-review-percentile",
+        type=float,
+        default=97.5,
+        help="Lower Stage1 percentile written as a manual-review band",
+    )
     p.add_argument("--no-video", action="store_true", help="Skip Check3 video probe")
     return p
 
@@ -684,6 +740,8 @@ def main(argv=None) -> int:
         probe_sampling_fps=args.probe_sampling_fps,
         probe_alpha=args.probe_alpha,
         analyze_video=not args.no_video,
+        s1_auto_reject_percentile=args.s1_auto_reject_percentile,
+        s1_review_percentile=args.s1_review_percentile,
     )
     flags = " ".join(f"{k} {v}" for k, v in result["suggested_clean_flags"].items())
     wash = result.get("estimated_wash") or {}

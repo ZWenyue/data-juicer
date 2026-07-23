@@ -78,8 +78,8 @@ for d in "$ROOT"/*/; do
   aj="$ANALYZE_ROOT/$task/analysis.json"
   if [[ -f "$aj" ]]; then
     analysis_version="$("$PY" -c "import json,sys;print(json.load(open(sys.argv[1])).get('analysis_version', 0))" "$aj")"
-    if [[ "$analysis_version" -lt 2 ]]; then
-      echo "[ERROR] $task: analysis.json 由旧版阈值策略生成，拒绝复用以避免误删。"
+    if [[ "$analysis_version" -lt 3 ]]; then
+      echo "[ERROR] $task: analysis.json 由旧版阈值策略生成，拒绝复用以避免漏删或误删。"
       echo "        请先重新运行 b/scripts/robot_data_analyze.sh（analysis: $aj）"
       exit 2
     fi

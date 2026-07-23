@@ -161,6 +161,11 @@ bash robot_data_analyze.sh --video-key observation.images.head_rgb
 - `threshold_report.md`：阈值、预估清洗比例和视频质量报告。
 - `suggested_flags.txt`：所有任务的建议参数汇总。
 
+Stage1 默认采用 p99 阈值自动剔除高置信异常 episode，并在
+`analysis.json.numeric.episode_decisions` 中记录逐 episode 原因；p97.5
+到 p99 的样本进入人工复查区间。可通过分析脚本的
+`--s1-auto-reject-percentile` 和 `--s1-review-percentile` 调整。
+
 各旗标含义见 [ROBOT_CLEAN_FLAGS.md](./ROBOT_CLEAN_FLAGS.md)。
 
 ## 4. 清洗脚本
@@ -176,7 +181,8 @@ Stage1 突变检测 → Stage2 状态/动作对齐 → Stage3 极值检测
 
 如果 `<ANALYZE_ROOT>/<task>/analysis.json` 存在，脚本自动读取其中的 `suggested_clean_flags`；否则使用 `BLUR_TH` 作为 Check3 模糊阈值。各旗标含义见 [ROBOT_CLEAN_FLAGS.md](./ROBOT_CLEAN_FLAGS.md)。
 
-清洗脚本会拒绝复用旧版（`analysis_version < 2`）分析文件，避免旧的固定分位数策略继续误删；升级后请先重新运行分析脚本。
+清洗脚本会拒绝复用旧版（`analysis_version < 3`）分析文件，避免 v2
+的观测包络阈值导致异常数据漏删；升级后请先重新运行分析脚本。
 
 ### 4.2 基本用法
 
