@@ -1,0 +1,145 @@
+{
+  "decision": "go",
+  "side": "right",
+  "source": "galaxea:Handle_Plates_20250619_001:ep000002",
+  "num_frames": 80,
+  "init_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_v1.yaml",
+  "output_calib": "b/d/hand2robot/calib_out_galaxea/r1_right_calibrated.yaml",
+  "model": "/mnt/r/share/zwy/Projects/data-juicer/b/d/urdf/generated/r1_lite_arm_right.xml",
+  "optimizer_message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
+  "metrics_before": {
+    "num_frames": 80,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 5.551563358906013e-17,
+    "median_reprojection_error_px": NaN,
+    "mean_reprojection_error_px": NaN,
+    "ik_success_rate": 1.0,
+    "median_ik_position_error_m": 0.0,
+    "loss": 3.705499935067413e-33
+  },
+  "metrics_after": {
+    "num_frames": 80,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 5.551563358906013e-17,
+    "median_reprojection_error_px": NaN,
+    "mean_reprojection_error_px": NaN,
+    "ik_success_rate": 1.0,
+    "median_ik_position_error_m": 0.0,
+    "loss": 3.705499935067413e-33
+  },
+  "side_params": {
+    "q_reference": [
+      0.012634917694996875,
+      0.5988483237026915,
+      -0.7072961776671729,
+      0.09970086113869824,
+      -0.001702127659574468,
+      0.0017069551628801538
+    ],
+    "workspace_scale_xyz": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "axis_alignment": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "retarget_quaternion_wxyz": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "camera_to_base_reference": {
+      "translation_m": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_wxyz": [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "velocity_limits": [
+      2.0,
+      2.0,
+      2.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    "wrist_ref_world": [
+      0.05885242406479437,
+      0.00025298255638404003,
+      -0.2105499113202939
+    ],
+    "ee_ref_world": [
+      0.05885242406479437,
+      0.00025298255638404003,
+      -0.2105499113202939
+    ]
+  },
+  "galaxea_meta": {
+    "parquet": "/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001/data/chunk-000/episode_000002.parquet",
+    "num_source_rows": 1298,
+    "num_frames": 80,
+    "stride": 3,
+    "q_reference_median": [
+      0.012634917694996875,
+      0.5988483237026915,
+      -0.7072961776671729,
+      0.09970086113869824,
+      -0.001702127659574468,
+      0.0017069551628801538
+    ],
+    "force_camera_to_base_translation_zero": true
+  },
+  "galaxea_fk_ik": {
+    "dataset_dir": "/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001",
+    "episode": 2,
+    "parquet": "/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001/data/chunk-000/episode_000002.parquet",
+    "side": "right",
+    "num_frames": 80,
+    "fk_vs_gt_pos_median_m": 0.3967724948563986,
+    "fk_vs_gt_ori_median_rad": 7.736192037654149e-06,
+    "fk_vs_gt_ori_median_deg": 0.00044325115326029516,
+    "t_off_gt_minus_fk_m": [
+      -0.061478481483584674,
+      -0.3449652019543333,
+      0.15439608895095985
+    ],
+    "fk_aligned_pos_median_m": 0.03858384251292238,
+    "fk_aligned_pos_p90_m": 0.051474667381639104,
+    "ik_from_fk_site_success": 1.0,
+    "ik_from_fk_site_qerr_median_rad": 0.008217563671399529,
+    "ik_from_gt_ee_aligned_success": 0.45,
+    "ik_from_gt_ee_aligned_pos_median_m": 0.011760699673499025
+  },
+  "checks": {
+    "optimizer_ok": true,
+    "loss_improved_or_equal": true,
+    "reprojection_improved_or_equal": false,
+    "output_written": true,
+    "galaxea_ik_from_fk_ge_0_95": true,
+    "galaxea_fk_ori_lt_1deg": true,
+    "galaxea_fk_aligned_pos_lt_5cm": true,
+    "calib_ik_success_ge_0_9": true
+  }
+}

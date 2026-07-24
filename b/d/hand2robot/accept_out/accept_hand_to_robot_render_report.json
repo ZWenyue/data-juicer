@@ -1,0 +1,33 @@
+{
+  "decision": "go",
+  "checks": {
+    "asset_load": true,
+    "static_mask_pixels": 11895,
+    "static_mask_ok": true,
+    "original_frames_unchanged": true,
+    "ik_success_rate": 0.0,
+    "num_frames": 5,
+    "outputs_written": true,
+    "outputs_differ_from_inputs": true
+  },
+  "errors": [],
+  "quality_summary": {
+    "schema_version": 1,
+    "calibration_version": "r1_right_v1",
+    "action_frame": "world",
+    "render_frame": "camera",
+    "hand_side": "right",
+    "ik_success_rate": 0.0,
+    "workspace_projection_rate": 0.0,
+    "median_position_error_m": 0.7749797062287295,
+    "median_orientation_error_rad": 1.759759925231968,
+    "failed_frame_ids": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "num_frames": 5
+  }
+}

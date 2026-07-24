@@ -1,0 +1,90 @@
+# Ego → R1 Lite robot-view recipe (hand action + smooth + render + export).
+#
+# Prerequisites:
+#   - MANO / HaWoR / MoGe / MegaSaM weights and conda envs (see demos/ego_hand_action_annotation)
+#   - MJCF: bash b/scripts/hand2robot/01_build_assets.sh
+#   - Prefer a calibrated YAML from 04_calibrate_ego.sh (default below is v1 bootstrap)
+#
+# Override paths via env when calling 07_process_ego_to_robot.sh, or edit this file.
+
+project_name: 'ego-to-robot-hand2robot'
+executor_type: 'default'   # use 'ray' for cluster; MegaSaM stage needs runtime_env conda
+dataset_path: './demos/ego_hand_action_annotation/data/demo-dataset.jsonl'
+export_path: './b/d/hand2robot/runs/ego_process/processed'
+
+# Load _au operators (video_hand_to_robot_render_mapper)
+custom_operator_paths:
+  - data_juicer/_au
+
+process:
+  - video_extract_frames_mapper:
+      frame_sampling_method: 'all_keyframes'
+      output_format: 'path'
+      frame_dir: './b/d/hand2robot/runs/ego_process/frames'
+      frame_field: 'video_frames'
+      legacy_split_by_text_token: false
+      video_backend: 'ffmpeg'
+      batch_mode: true
+
+  - video_camera_calibration_moge_mapper:
+      model_path: 'moge-2-vitl-normal/model.pt'
+      tag_field_name: 'camera_calibration_moge_tags'
+      frame_field: 'video_frames'
+      output_depth: true
+      output_points: false
+      output_mask: false
+      batch_mode: true
+
+  - video_hand_reconstruction_hawor_mapper:
+      hawor_model_path: 'hawor.ckpt'
+      hawor_config_path: 'model_config.yaml'
+      hawor_detector_path: 'detector.pt'
+      camera_calibration_field: 'camera_calibration_moge_tags'
+      tag_field_name: 'hand_reconstruction_hawor_tags'
+      mano_right_path: './mano_v1_2/models/MANO_RIGHT.pkl'
+      mano_left_path: './mano_v1_2/models/MANO_LEFT.pkl'
+      frame_field: 'video_frames'
+      batch_mode: true
+
+  # Requires separate conda env "mega-sam" when executor_type=ray
+  - video_camera_pose_megasam_mapper:
+      tag_field_name: 'video_camera_pose_tags'
+      camera_calibration_field: 'camera_calibration_moge_tags'
+      batch_mode: true
+
+  - video_hand_action_compute_mapper:
+      hand_reconstruction_field: 'hand_reconstruction_hawor_tags'
+      camera_pose_field: 'video_camera_pose_tags'
+      tag_field_name: 'hand_action_tags'
+      hand_type: 'right'   # P0–P1: single side only for robot render
+      batch_mode: true
+
+  - video_hand_motion_smooth_mapper:
+      hand_action_field: 'hand_action_tags'
+      savgol_window: 11
+      savgol_polyorder: 3
+      outlier_velocity_threshold: 5.0
+      min_frames_for_smoothing: 5
+      smooth_joints: true
+
+  - video_hand_to_robot_render_mapper:
+      robot_model_paths:
+        right: 'b/d/urdf/generated/r1_lite_arm_right.xml'
+      calibration_path: 'b/d/hand2robot/calibration/r1_right_v1.yaml'
+      hand_type: 'right'
+      ik_solver: 'jacobian'
+      hand_mask_method: 'joints_bbox_union'
+      enable_depth_occlusion: false
+      output_frame_field: 'robot_render_frames'
+      quality_field: 'hand_to_robot_render_quality'
+      output_root: './b/d/hand2robot/runs/ego_process/robot_frames'
+      gl_backend: 'egl'
+      batch_mode: true
+
+  - export_to_lerobot_mapper:
+      output_dir: './b/d/hand2robot/runs/ego_process/lerobot_dataset'
+      hand_action_field: 'hand_action_tags'
+      frame_field: 'robot_render_frames'
+      fps: 10
+      robot_type: 'r1_lite_ego_retarget'
+      batch_mode: true

@@ -1,0 +1,23 @@
+schema_version: 1
+robot: r1_lite
+action_frame: world
+camera_convention: opencv
+base_lowpass_tau: 0.3
+mujoco_camera_adapter:
+  translation: [0.0, 0.0, 0.0]
+  quaternion_wxyz: [0.0, 1.0, 0.0, 0.0]
+sides:
+  right:
+    q_reference: [0.0, 1.2, -1.5, 0.0, 0.0, 0.0]
+    workspace_scale_xyz: [0.8, 0.8, 0.7]
+    axis_alignment:
+      - [1.0, 0.0, 0.0]
+      - [0.0, 1.0, 0.0]
+      - [0.0, 0.0, 1.0]
+    retarget_quaternion_wxyz: [1.0, 0.0, 0.0, 0.0]
+    camera_to_base_reference:
+      translation_m: [0.0, 0.3, -0.2]
+      # OpenCV→MuJoCo adapter is 180° about X; set R_cv = R_adapter so R_mj = I
+      # and the arm faces the ego camera like the smoke-render baseline.
+      quaternion_wxyz: [0.0, 1.0, 0.0, 0.0]
+    velocity_limits: [2.0, 2.0, 2.0, 3.0, 3.0, 3.0]

@@ -9,3 +9,4 @@ from .ops.mapper import robot_key_frame_detector_mapper  # noqa: F401
 from .ops.mapper import robot_embodiment_prompt_mapper  # noqa: F401
 from .ops.mapper import robot_lerobot_parquet_loader_mapper  # noqa: F401
 from .ops.mapper import robot_unified_state_mapper  # noqa: F401
+from .ops.mapper import video_hand_to_robot_render_mapper  # noqa: F401

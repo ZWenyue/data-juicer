@@ -1,0 +1,108 @@
+{
+  "decision": "go",
+  "side": "right",
+  "source": "synthetic",
+  "num_frames": 16,
+  "init_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_v1.yaml",
+  "output_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/calib_synthetic_right/r1_right_calibrated.yaml",
+  "model": "/mnt/r/share/zwy/Projects/data-juicer/b/d/urdf/generated/r1_lite_arm_right.xml",
+  "optimizer_message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+  "metrics_before": {
+    "num_frames": 16,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 0.0,
+    "median_reprojection_error_px": 8.933882266047599,
+    "mean_reprojection_error_px": 9.112922070860904,
+    "ik_success_rate": 0.0,
+    "median_ik_position_error_m": 0.7520893166619866,
+    "loss": 0.8524872771818618
+  },
+  "metrics_after": {
+    "num_frames": 16,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 5.634527146706499e-06,
+    "median_reprojection_error_px": 8.933882266028991,
+    "mean_reprojection_error_px": 9.112922070842197,
+    "ik_success_rate": 0.0,
+    "median_ik_position_error_m": 0.6757286053269524,
+    "loss": 0.7582717300900431
+  },
+  "side_params": {
+    "q_reference": [
+      0.0,
+      1.2,
+      -1.5,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "workspace_scale_xyz": [
+      0.8000000000004373,
+      0.800000000000015,
+      0.7000000000000314
+    ],
+    "axis_alignment": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "retarget_quaternion_wxyz": [
+      0.9999999999960315,
+      -4.6235954486062434e-07,
+      1.6472232099408278e-10,
+      2.779064170878854e-06
+    ],
+    "camera_to_base_reference": {
+      "translation_m": [
+        -2.2532870190702805e-12,
+        0.30000000000170846,
+        -0.19999999999729848
+      ],
+      "quaternion_wxyz": [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "velocity_limits": [
+      2.0,
+      2.0,
+      2.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    "wrist_ref_world": [
+      0.2,
+      0.05,
+      0.405
+    ],
+    "ee_ref_world": [
+      0.2,
+      0.05,
+      0.405
+    ]
+  },
+  "galaxea_meta": null,
+  "galaxea_fk_ik": null,
+  "checks": {
+    "optimizer_ok": true,
+    "loss_improved_or_equal": true,
+    "reprojection_improved_or_equal": true,
+    "output_written": true,
+    "calib_ik_success_ge_0_9": false
+  }
+}

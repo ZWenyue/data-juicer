@@ -1,0 +1,68 @@
+schema_version: 1
+robot: r1_lite
+action_frame: world
+camera_convention: opencv
+base_lowpass_tau: 0.3
+mujoco_camera_adapter:
+  translation:
+  - 0.0
+  - 0.0
+  - 0.0
+  quaternion_wxyz:
+  - 0.0
+  - 1.0
+  - 0.0
+  - 0.0
+sides:
+  right:
+    q_reference:
+    - 0.0
+    - 1.2
+    - -1.5
+    - 0.0
+    - 0.0
+    - 0.0
+    workspace_scale_xyz:
+    - 0.8000000000004373
+    - 0.800000000000015
+    - 0.7000000000000314
+    axis_alignment:
+    - - 1.0
+      - 0.0
+      - 0.0
+    - - 0.0
+      - 1.0
+      - 0.0
+    - - 0.0
+      - 0.0
+      - 1.0
+    retarget_quaternion_wxyz:
+    - 0.9999999999960315
+    - -4.6235954486062434e-07
+    - 1.6472232099408278e-10
+    - 2.779064170878854e-06
+    camera_to_base_reference:
+      translation_m:
+      - -2.2532870190702805e-12
+      - 0.30000000000170846
+      - -0.19999999999729848
+      quaternion_wxyz:
+      - 0.0
+      - 1.0
+      - 0.0
+      - 0.0
+    velocity_limits:
+    - 2.0
+    - 2.0
+    - 2.0
+    - 3.0
+    - 3.0
+    - 3.0
+    wrist_ref_world:
+    - 0.2
+    - 0.05
+    - 0.405
+    ee_ref_world:
+    - 0.2
+    - 0.05
+    - 0.405
