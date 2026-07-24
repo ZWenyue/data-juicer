@@ -1,6 +1,7 @@
 from .ops.filter import robot_extreme_value_filter  # noqa: F401
 from .ops.filter import robot_state_action_alignment_filter  # noqa: F401
 from .ops.filter import robot_sudden_change_filter  # noqa: F401
+from .ops.filter import robot_task_filter  # noqa: F401
 from .ops.filter import robot_video_quality_episode_filter  # noqa: F401
 from .ops.mapper import robot_base_frame_alignment_mapper  # noqa: F401
 from .ops.mapper import robot_frame_quality_scorer_mapper  # noqa: F401
