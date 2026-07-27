@@ -29,6 +29,53 @@ from .retarget import palm_pixel_from_joints, project_point_cam, retarget_wrist_
 from .transforms import invert_T, mat_to_quat_wxyz, quat_wxyz_to_mat, se3, state_to_T
 
 
+def _jacobian_ik_multistart(
+    renderer,
+    target_pos: np.ndarray,
+    target_rot: np.ndarray,
+    q_warm: np.ndarray,
+    q_reference: np.ndarray,
+    max_iter: int = 100,
+    tol_pos: float = 5e-3,
+    tol_rot: float = 0.0524,
+):
+    """Try several IK warm-starts; return best (q, ok, metrics)."""
+    from .ik import jacobian_ik
+
+    seeds = [np.asarray(q_warm, dtype=np.float64).reshape(-1)]
+    q_ref = np.asarray(q_reference, dtype=np.float64).reshape(-1)
+    for cand in (
+        q_ref,
+        np.zeros(6, dtype=np.float64),
+        q_ref * 0.5,
+        np.array([0.0, 1.0, -1.2, 0.0, 0.3, 0.0], dtype=np.float64),
+        np.array([0.4, 1.0, -1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        np.array([-0.4, 1.0, -1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+    ):
+        if not any(np.allclose(cand, s) for s in seeds):
+            seeds.append(np.asarray(cand, dtype=np.float64).reshape(-1))
+
+    best = None
+    for q0 in seeds:
+        q, ok, metrics = jacobian_ik(
+            renderer.model,
+            renderer.data,
+            renderer.site_id,
+            target_pos,
+            target_rot,
+            renderer.arm_qpos_addrs,
+            q_init=q0,
+            max_iter=max_iter,
+            tol_pos=tol_pos,
+            tol_rot=tol_rot,
+        )
+        if ok:
+            return q, True, metrics
+        if best is None or float(metrics["position_error_m"]) < float(best[2]["position_error_m"]):
+            best = (q, False, metrics)
+    return best
+
+
 @dataclass
 class CalibFrame:
     frame_id: int
@@ -171,8 +218,6 @@ def evaluate_clip(
     q_init: Optional[np.ndarray] = None,
 ) -> dict:
     """Evaluate retarget (+ optional IK) metrics on a clip."""
-    from .ik import jacobian_ik
-
     wrist_ref = clip.wrist_ref_world
     if wrist_ref is None:
         wrist_ref = side_cal.wrist_ref_world
@@ -214,7 +259,12 @@ def evaluate_clip(
 
         if fr.joints_cam is not None:
             u_t, v_t, ok_t = palm_pixel_from_joints(fr.joints_cam, fr.fx, fr.fy, fr.cx, fr.cy)
-            u_p, v_p, ok_p = project_point_cam(T_camera_ee[:3, 3], fr.fx, fr.fy, fr.cx, fr.cy)
+            p_ee_cam = np.asarray(T_camera_ee[:3, 3], dtype=np.float64).copy()
+            # When world is encoded with the OpenCV↔MuJoCo adapter (z flipped under
+            # identity cam_c2w), undo the flip so UV projection sees +Z OpenCV points.
+            if p_ee_cam[2] <= 1e-6:
+                p_ee_cam = np.array([p_ee_cam[0], -p_ee_cam[1], -p_ee_cam[2]], dtype=np.float64)
+            u_p, v_p, ok_p = project_point_cam(p_ee_cam, fr.fx, fr.fy, fr.cx, fr.cy)
             if ok_t and ok_p:
                 uv_errs.append(float(np.hypot(u_p - u_t, v_p - v_t)))
 
@@ -226,15 +276,13 @@ def evaluate_clip(
             T_mj_base[:3, :3] = quat_wxyz_to_mat(renderer.data.mocap_quat[renderer.anchor_mocap_id])
             T_mj_ee = T_mj_base @ T_base_ee
             q_warm = np.asarray(fr.q_gt, dtype=np.float64) if fr.q_gt is not None else q_prev
-            q, ok, metrics = jacobian_ik(
-                renderer.model,
-                renderer.data,
-                renderer.site_id,
+            q, ok, metrics = _jacobian_ik_multistart(
+                renderer,
                 T_mj_ee[:3, 3],
                 T_mj_ee[:3, :3],
-                renderer.arm_qpos_addrs,
-                q_init=q_warm,
-                max_iter=80,
+                q_warm=q_warm,
+                q_reference=side_cal.q_reference,
+                max_iter=100,
                 tol_pos=5e-3,
                 tol_rot=0.0524,
             )
@@ -821,3 +869,265 @@ def clip_from_galaxea_lerobot(
         "force_camera_to_base_translation_zero": True,
     }
     return clip, meta
+
+
+# ---------------------------------------------------------------------------
+# EgoDex LeRobot (real egocentric hand poses) — P1 human-hand calibration
+# ---------------------------------------------------------------------------
+
+EGODEX_JOINTS_PER_HAND = 25
+EGODEX_DIMS_PER_JOINT = 6  # xyz + rpy
+EGODEX_HAND_DIM = EGODEX_JOINTS_PER_HAND * EGODEX_DIMS_PER_JOINT  # 150
+# Confidence / joint layout: 0=leftHand ... 24=leftThumbTip, 25=rightHand ...
+EGODEX_WRIST_CONF_IDX = {"left": 0, "right": 25}
+EGODEX_INDEX_TIP_JOINT = 20  # within-hand joint index
+EGODEX_THUMB_TIP_JOINT = 24
+
+
+def _egodex_info(dataset_dir: str | Path) -> dict:
+    path = Path(dataset_dir) / "meta" / "info.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"EgoDex info.json missing: {path}")
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def is_egodex_lerobot(dataset_dir: str | Path) -> bool:
+    try:
+        info = _egodex_info(dataset_dir)
+    except FileNotFoundError:
+        return False
+    if str(info.get("robot_type", "")).lower().startswith("egodex"):
+        return True
+    feats = info.get("features") or {}
+    return "camera.extrinsics" in feats and "observation.state" in feats
+
+
+def _egodex_video_wh(info: dict) -> Tuple[int, int]:
+    feat = (info.get("features") or {}).get("observation.images.ego") or {}
+    shape = feat.get("shape") or [270, 480, 3]
+    # LeRobot video shape is [H, W, C]
+    return int(shape[1]), int(shape[0])
+
+
+def _scale_intrinsics_to_video(K: np.ndarray, img_w: int, img_h: int) -> np.ndarray:
+    """Scale K written for a larger sensor to the stored video resolution."""
+    K = np.asarray(K, dtype=np.float64).reshape(3, 3)
+    # Infer calibration resolution from principal point (cx≈W/2, cy≈H/2).
+    calib_w = max(float(K[0, 2] * 2.0), 1.0)
+    calib_h = max(float(K[1, 2] * 2.0), 1.0)
+    sx = float(img_w) / calib_w
+    sy = float(img_h) / calib_h
+    Ks = K.copy()
+    Ks[0, :] *= sx
+    Ks[1, :] *= sy
+    return Ks
+
+
+def _load_egodex_episode_rows(
+    dataset_dir: str | Path,
+    episode: int,
+    columns: Sequence[str],
+):
+    """Load one episode from sharded file-*.parquet under data/chunk-*/."""
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    root = Path(dataset_dir)
+    files = sorted(root.glob("data/chunk-*/file-*.parquet"))
+    if not files:
+        # fallback to classic episode_*.parquet
+        files = sorted(root.glob("data/chunk-*/episode_*.parquet"))
+    if not files:
+        raise FileNotFoundError(f"No parquet shards under {dataset_dir}/data")
+
+    for pf in files:
+        # Cheap probe: episode_index column only
+        probe = pq.read_table(pf, columns=["episode_index"])
+        if int(episode) not in set(probe.column(0).to_pylist()):
+            continue
+        table = pq.read_table(pf, columns=list(columns))
+        mask = pc.equal(table["episode_index"], int(episode))
+        filtered = table.filter(mask)
+        if filtered.num_rows == 0:
+            continue
+        return filtered, Path(pf)
+    raise FileNotFoundError(f"episode_index={episode} not found under {dataset_dir}")
+
+
+def _egodex_gripper_from_state(hand6x25: np.ndarray) -> float:
+    """Map thumb–index tip distance to gripper ∈ [-1, 1] (1=open)."""
+    idx = hand6x25[EGODEX_INDEX_TIP_JOINT, :3]
+    th = hand6x25[EGODEX_THUMB_TIP_JOINT, :3]
+    dist = float(np.linalg.norm(idx - th))
+    # ~2 cm closed → -1; ~10 cm open → +1
+    return float(np.clip(dist / 0.05 - 1.0, -1.0, 1.0))
+
+
+def clip_from_egodex_lerobot(
+    dataset_dir: str | Path,
+    side: str = "right",
+    episode: int = 0,
+    max_frames: Optional[int] = 200,
+    stride: int = 2,
+    min_wrist_conf: float = 0.5,
+    extrinsics_are_c2w: bool = True,
+    camera_as_world: bool = True,
+) -> Tuple[CalibClip, Dict[str, Any]]:
+    """Build a CalibClip from EgoDex LeRobot hand poses.
+
+    EgoDex ``observation.state`` joints are in **camera frame**. For IK-compatible
+    calibration we default to ``camera_as_world=True``:
+
+    - ``T_world_camera = I``
+    - wrist state encoded as ``T_adapt @ T_cam_wrist`` (same trick as Galaxea FK clips)
+    - ``joints_cam`` kept in true OpenCV camera frame for UV (evaluate undoes adapter)
+
+    Set ``camera_as_world=False`` to keep full ``cam_c2w`` world trajectories.
+    """
+    from .transforms import opencv_to_mujoco_camera_T
+
+    if side not in ("left", "right"):
+        raise ValueError(side)
+    info = _egodex_info(dataset_dir)
+    img_w, img_h = _egodex_video_wh(info)
+    T_adapt = opencv_to_mujoco_camera_T()
+
+    cols = [
+        "observation.state",
+        "observation.state.confidence",
+        "camera.intrinsics",
+        "camera.extrinsics",
+        "frame_index",
+        "episode_index",
+    ]
+    table, parquet = _load_egodex_episode_rows(dataset_dir, episode, cols)
+    n = table.num_rows
+    hand_offset = 0 if side == "left" else EGODEX_HAND_DIM
+    conf_idx = EGODEX_WRIST_CONF_IDX[side]
+
+    frames: List[CalibFrame] = []
+    skipped_conf = 0
+    wrist_cam_pts = []
+    for i in range(0, n, max(int(stride), 1)):
+        conf = np.asarray(table.column("observation.state.confidence")[i].as_py(), dtype=np.float64)
+        if float(conf[conf_idx]) < float(min_wrist_conf):
+            skipped_conf += 1
+            continue
+        state300 = np.asarray(table.column("observation.state")[i].as_py(), dtype=np.float64)
+        hand = state300[hand_offset : hand_offset + EGODEX_HAND_DIM].reshape(
+            EGODEX_JOINTS_PER_HAND, EGODEX_DIMS_PER_JOINT
+        )
+        K_raw = np.asarray(table.column("camera.intrinsics")[i].as_py(), dtype=np.float64)
+        K = _scale_intrinsics_to_video(K_raw, img_w, img_h)
+        E = np.asarray(table.column("camera.extrinsics")[i].as_py(), dtype=np.float64).reshape(4, 4)
+        T_c2w = E if extrinsics_are_c2w else invert_T(E)
+
+        wrist_xyzrpy = hand[0]
+        grip = _egodex_gripper_from_state(hand)
+        T_cam_wrist = state_to_T(
+            [
+                wrist_xyzrpy[0],
+                wrist_xyzrpy[1],
+                wrist_xyzrpy[2],
+                wrist_xyzrpy[3],
+                wrist_xyzrpy[4],
+                wrist_xyzrpy[5],
+                0.0,
+                grip,
+            ]
+        )
+        wrist_cam_pts.append(wrist_xyzrpy[:3].copy())
+
+        if camera_as_world:
+            # Encode so YAML camera_to_base (R=adapter) yields MJ targets with +Z.
+            T_world_wrist = T_adapt @ T_cam_wrist
+            T_world_camera = np.eye(4, dtype=np.float64)
+        else:
+            T_world_wrist = T_c2w @ T_cam_wrist
+            T_world_camera = np.asarray(T_c2w, dtype=np.float64)
+
+        state8 = _T_to_state8(T_world_wrist, gripper=grip)
+        joints_cam = np.stack(
+            [hand[0, :3], hand[EGODEX_INDEX_TIP_JOINT, :3], hand[EGODEX_THUMB_TIP_JOINT, :3]],
+            axis=0,
+        )
+        fid = int(table.column("frame_index")[i].as_py())
+        frames.append(
+            CalibFrame(
+                frame_id=fid,
+                state=state8,
+                T_world_camera=T_world_camera,
+                joints_cam=joints_cam,
+                fx=float(K[0, 0]),
+                fy=float(K[1, 1]),
+                cx=float(K[0, 2]),
+                cy=float(K[1, 2]),
+                img_w=img_w,
+                img_h=img_h,
+            )
+        )
+        if max_frames is not None and len(frames) >= int(max_frames):
+            break
+
+    if not frames:
+        raise ValueError(
+            f"No EgoDex frames for episode={episode} side={side} "
+            f"(rows={n}, skipped_conf={skipped_conf}, min_wrist_conf={min_wrist_conf})"
+        )
+
+    wrist_ref = frames[0].state[:3].copy()
+    clip = CalibClip(
+        side=side,
+        frames=frames,
+        source=f"egodex:{Path(dataset_dir).name}:ep{int(episode):06d}",
+        wrist_ref_world=wrist_ref,
+        ee_ref_world=wrist_ref.copy(),
+    )
+    wcam = np.stack(wrist_cam_pts, axis=0)
+    # Suggested OpenCV-camera base translation: below (+Y) and behind (−Z) the hand cloud.
+    suggested_base_t = [
+        float(wcam[:, 0].mean()),
+        float(wcam[:, 1].mean() + 0.28),
+        float(wcam[:, 2].mean() - 0.40),
+    ]
+    meta = {
+        "dataset_dir": str(dataset_dir),
+        "parquet": str(parquet),
+        "episode": int(episode),
+        "side": side,
+        "num_source_rows": int(n),
+        "num_frames": len(frames),
+        "stride": int(stride),
+        "skipped_low_confidence": int(skipped_conf),
+        "min_wrist_conf": float(min_wrist_conf),
+        "img_w": img_w,
+        "img_h": img_h,
+        "extrinsics_are_c2w": bool(extrinsics_are_c2w),
+        "camera_as_world": bool(camera_as_world),
+        "robot_type": info.get("robot_type"),
+        "suggested_camera_to_base_translation_m": suggested_base_t,
+        "wrist_cam_mean": [float(x) for x in wcam.mean(0).tolist()],
+    }
+    return clip, meta
+
+
+def p1_metrics_from_eval(metrics: dict, num_frames: int) -> Dict[str, Any]:
+    """P1 exit gates: ≥100 frames, IK≥90%, median reprojection <15 px."""
+    ik = metrics.get("ik_success_rate", float("nan"))
+    uv = metrics.get("median_reprojection_error_px", float("nan"))
+    checks = {
+        "p1_num_frames_ge_100": int(num_frames) >= 100,
+        "p1_ik_success_ge_0_9": ik == ik and float(ik) >= 0.9,
+        "p1_reproj_median_lt_15px": uv == uv and float(uv) < 15.0,
+    }
+    checks["p1_pass"] = all(checks.values())
+    return {
+        "num_frames": int(num_frames),
+        "ik_success_rate": float(ik) if ik == ik else float("nan"),
+        "median_reprojection_error_px": float(uv) if uv == uv else float("nan"),
+        "median_ik_position_error_m": metrics.get("median_ik_position_error_m"),
+        "median_reach_violation_m": metrics.get("median_reach_violation_m"),
+        "checks": checks,
+    }

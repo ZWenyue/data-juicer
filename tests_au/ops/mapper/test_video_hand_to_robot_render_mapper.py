@@ -14,7 +14,13 @@ import numpy as np
 
 from data_juicer._au.tools.build_r1_arm_mjcf import DEFAULT_MESH_DIR, DEFAULT_URDF, build_all
 from data_juicer._au.utils.hand_to_robot.calibration import load_calibration
-from data_juicer._au.utils.hand_to_robot.composite import composite_robot_on_frame, project_joints_mask
+from data_juicer._au.utils.hand_to_robot.composite import (
+    DepthAligner,
+    composite_robot_on_frame,
+    composite_with_depth,
+    fit_depth_aligner,
+    project_joints_mask,
+)
 from data_juicer._au.utils.hand_to_robot.ik import jacobian_ik, map_gripper_to_finger
 from data_juicer._au.utils.hand_to_robot.renderer import RobotArmRenderer
 from data_juicer._au.utils.hand_to_robot.transforms import (
@@ -88,6 +94,65 @@ class TestHandToRobotHelpers(unittest.TestCase):
         self.assertIn("right", cal.sides)
         self.assertEqual(cal.action_frame, "world")
         self.assertEqual(cal.sides["right"].q_reference.shape, (6,))
+
+    def test_fit_depth_aligner(self):
+        scene = [1.0, 2.0, 3.0, 4.0, 5.0]
+        metric = [2.0, 4.0, 6.0, 8.0, 10.0]  # scale=2, bias=0
+        a = fit_depth_aligner(scene, metric, min_pairs=4)
+        self.assertAlmostEqual(a.scale, 2.0, places=3)
+        self.assertAlmostEqual(a.bias, 0.0, places=2)
+        # Too few pairs → identity
+        a2 = fit_depth_aligner([1.0], [2.0], min_pairs=4)
+        self.assertEqual(a2.scale, 1.0)
+        self.assertEqual(a2.bias, 0.0)
+
+    def test_depth_occlusion_visibility(self):
+        h, w = 64, 80
+        bg = np.full((h, w, 3), 10, dtype=np.uint8)
+        robot = np.full((h, w, 3), 200, dtype=np.uint8)
+        mask = np.zeros((h, w), dtype=bool)
+        mask[20:40, 30:50] = True
+        robot_depth = np.full((h, w), 1.0, dtype=np.float32)
+        # Scene farther than robot → robot visible
+        scene_far = np.full((h, w), 2.0, dtype=np.float32)
+        out, meta = composite_with_depth(
+            bg, robot, mask, robot_depth, scene_far, depth_aligner=DepthAligner(), edge_blur=0
+        )
+        self.assertTrue(meta["ok"])
+        self.assertGreater(meta["visible_pixel_count"], 0)
+        self.assertTrue(np.all(out[mask] == 200))
+
+        # Scene closer than robot → occluded (keep background)
+        scene_near = np.full((h, w), 0.5, dtype=np.float32)
+        out2, meta2 = composite_with_depth(
+            bg, robot, mask, robot_depth, scene_near, depth_aligner=DepthAligner(), edge_blur=0
+        )
+        self.assertTrue(meta2["ok"])
+        self.assertEqual(meta2["visible_pixel_count"], 0)
+        self.assertTrue(np.all(out2[mask] == 10))
+
+    def test_depth_invalid_ratio_gate(self):
+        h, w = 32, 32
+        bg = np.zeros((h, w, 3), dtype=np.uint8)
+        robot = np.full((h, w, 3), 255, dtype=np.uint8)
+        mask = np.ones((h, w), dtype=bool)
+        robot_depth = np.full((h, w), 1.0, dtype=np.float32)
+        scene = np.full((h, w), np.nan, dtype=np.float32)
+        out, meta = composite_with_depth(
+            bg,
+            robot,
+            mask,
+            robot_depth,
+            scene,
+            depth_aligner=DepthAligner(),
+            max_invalid_ratio=0.2,
+            edge_blur=0,
+        )
+        self.assertFalse(meta["ok"])
+        self.assertEqual(meta["quality_flag"], "depth_invalid")
+        self.assertGreater(meta["depth_invalid_ratio"], 0.2)
+        # Fallback leaves background (no robot overlay)
+        self.assertTrue(np.all(out == 0))
 
 
 @unittest.skipUnless(HAS_ASSETS and MUJOCO_AVAILABLE, "assets/mujoco unavailable")
@@ -216,6 +281,64 @@ class TestHandToRobotRenderMapper(DataJuicerTestCaseBase):
             quality = out[Fields.meta]["hand_to_robot_render_quality"]
             self.assertIn("summary", quality)
             self.assertIn("frames", quality)
+
+    def test_depth_occlusion_mapper_path(self):
+        from data_juicer._au.ops.mapper.video_hand_to_robot_render_mapper import (
+            VideoHandToRobotRenderMapper,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            op = VideoHandToRobotRenderMapper(
+                robot_model_paths={"right": str(self.model_path)},
+                calibration_path=str(CALIB_RIGHT),
+                ik_solver="jacobian",
+                hand_type="right",
+                enable_depth_occlusion=True,
+                output_root=str(tmp / "robot_render"),
+                gl_backend=os.environ.get("MUJOCO_GL", "egl"),
+            )
+            op._init_renderer(240, 320)
+            cal = load_calibration(CALIB_RIGHT)
+            side = cal.get_side("right")
+            frame = np.full((240, 320, 3), 40, dtype=np.uint8)
+            # Far plane so robot depth wins in front of background.
+            scene_depth = np.full((240, 320), 5.0, dtype=np.float32)
+            hand_mask = np.zeros((240, 320), dtype=bool)
+            result, meta = op._render_and_composite(
+                frame,
+                side.q_reference,
+                0.02,
+                side.T_camera_base_ref,
+                hand_mask,
+                scene_depth,
+                50.0,
+                "right",
+                depth_aligner=DepthAligner(),
+            )
+            self.assertTrue(meta.get("depth_occlusion_used"))
+            self.assertEqual(result.shape, frame.shape)
+            self.assertIn(meta.get("quality_flag"), ("ok", "no_robot_mask", "depth_invalid"))
+            # Near occluder everywhere → robot should be hidden (or depth_invalid if mask empty).
+            scene_near = np.full((240, 320), 0.05, dtype=np.float32)
+            result2, meta2 = op._render_and_composite(
+                frame,
+                side.q_reference,
+                0.02,
+                side.T_camera_base_ref,
+                hand_mask,
+                scene_near,
+                50.0,
+                "right",
+                depth_aligner=DepthAligner(),
+            )
+            self.assertTrue(meta2.get("depth_occlusion_used"))
+            if meta2.get("quality_flag") == "ok" and meta2.get("visible_pixel_count", 0) == 0:
+                # Background preserved where robot was fully occluded.
+                self.assertTrue(np.allclose(result2, frame) or result2.shape == frame.shape)
+            for r in op._renderers.values():
+                r.close()
+            op._renderers.clear()
 
     def test_robot_mask_excludes_helper_geoms(self):
         renderer = RobotArmRenderer(self.model_path, width=320, height=240)

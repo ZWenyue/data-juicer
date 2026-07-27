@@ -1,0 +1,151 @@
+{
+  "decision": "go",
+  "side": "left",
+  "source": "egodex:test_lerobot:ep000002",
+  "num_frames": 120,
+  "init_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_left_v1.yaml",
+  "output_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_left_egodex_v1.yaml",
+  "model": "/mnt/r/share/zwy/Projects/data-juicer/b/d/urdf/generated/r1_lite_arm_left.xml",
+  "optimizer_message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+  "metrics_before": {
+    "num_frames": 120,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 1.177569344012831e-16,
+    "median_reprojection_error_px": 20.293932737328667,
+    "mean_reprojection_error_px": 21.53953257395655,
+    "ik_success_rate": 1.0,
+    "median_ik_position_error_m": 0.0032169343064320484,
+    "loss": 0.33586840157655656
+  },
+  "metrics_after": {
+    "num_frames": 120,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 0.0013698303018196034,
+    "median_reprojection_error_px": 0.02453155224625446,
+    "mean_reprojection_error_px": 0.022951344376751514,
+    "ik_success_rate": 1.0,
+    "median_ik_position_error_m": 0.0034517830083905707,
+    "loss": 2.606270026677031e-05
+  },
+  "p1_human_hand": {
+    "num_frames": 120,
+    "ik_success_rate": 1.0,
+    "median_reprojection_error_px": 0.02453155224625446,
+    "median_ik_position_error_m": 0.0034517830083905707,
+    "median_reach_violation_m": 0.0,
+    "checks": {
+      "p1_num_frames_ge_100": true,
+      "p1_ik_success_ge_0_9": true,
+      "p1_reproj_median_lt_15px": true,
+      "p1_pass": true
+    }
+  },
+  "side_params": {
+    "q_reference": [
+      0.0,
+      1.2,
+      -1.5,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "workspace_scale_xyz": [
+      0.9991435535312998,
+      1.0000002962381218,
+      1.0003161714341076
+    ],
+    "axis_alignment": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "retarget_quaternion_wxyz": [
+      0.9999997654456272,
+      -3.890700425796654e-05,
+      -3.3972277067131614e-05,
+      -0.0006829647282268615
+    ],
+    "camera_to_base_reference": {
+      "translation_m": [
+        -0.2777015265485179,
+        -0.01192802794147084,
+        0.33246692744811285
+      ],
+      "quaternion_wxyz": [
+        -0.004324886776306264,
+        0.9999905124056748,
+        0.0003865431242903561,
+        0.00034790432759589096
+      ]
+    },
+    "velocity_limits": [
+      2.0,
+      2.0,
+      2.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    "wrist_ref_world": [
+      -0.054945606738328934,
+      -0.10335905104875565,
+      -0.38896000385284424
+    ],
+    "ee_ref_world": [
+      -0.054945606738328934,
+      -0.10335905104875565,
+      -0.38896000385284424
+    ]
+  },
+  "galaxea_meta": null,
+  "galaxea_fk_ik": null,
+  "egodex_meta": {
+    "dataset_dir": "/mnt/r/DATA/EgoDex/test_lerobot",
+    "parquet": "/mnt/r/DATA/EgoDex/test_lerobot/data/chunk-000/file-000.parquet",
+    "episode": 2,
+    "side": "left",
+    "num_source_rows": 1067,
+    "num_frames": 120,
+    "stride": 4,
+    "skipped_low_confidence": 0,
+    "min_wrist_conf": 0.5,
+    "img_w": 480,
+    "img_h": 270,
+    "extrinsics_are_c2w": true,
+    "camera_as_world": true,
+    "robot_type": "egodex_hand",
+    "suggested_camera_to_base_translation_m": [
+      -0.06808280555875777,
+      0.3067360067635309,
+      -0.14018696062266828
+    ],
+    "wrist_cam_mean": [
+      -0.06808280555875777,
+      0.026736006763530894,
+      0.25981303937733174
+    ]
+  },
+  "checks": {
+    "optimizer_ok": true,
+    "loss_improved_or_equal": true,
+    "reprojection_improved_or_equal": true,
+    "output_written": true,
+    "calib_ik_success_ge_0_9": true,
+    "p1_num_frames_ge_100": true,
+    "p1_ik_success_ge_0_9": true,
+    "p1_reproj_median_lt_15px": true,
+    "p1_pass": true
+  }
+}

@@ -23,13 +23,17 @@ from data_juicer.utils.file_utils import load_numpy
 
 from ...utils.hand_to_robot.calibration import HandToRobotCalibration, load_calibration
 from ...utils.hand_to_robot.composite import (
+    DepthAligner,
     bbox_to_mask,
     composite_robot_on_frame,
+    composite_with_depth,
+    fit_depth_aligner,
     project_joints_mask,
+    resize_depth,
 )
 from ...utils.hand_to_robot.ik import jacobian_ik, map_gripper_to_finger
 from ...utils.hand_to_robot.renderer import RobotArmRenderer
-from ...utils.hand_to_robot.retarget import retarget_wrist_to_ee
+from ...utils.hand_to_robot.retarget import palm_pixel_from_joints, retarget_wrist_to_ee
 from ...utils.hand_to_robot.transforms import (
     compute_mujoco_fovy,
     invert_T,
@@ -73,6 +77,7 @@ class VideoHandToRobotRenderMapper(Mapper):
         hand_type: str = "right",
         enable_depth_occlusion: bool = False,
         depth_epsilon_m: float = 0.02,
+        max_depth_invalid_ratio: float = 0.2,
         hand_mask_method: str = "joints_bbox_union",
         inpaint_method: str = "telea",
         edge_blur: int = 3,
@@ -86,6 +91,10 @@ class VideoHandToRobotRenderMapper(Mapper):
         :param output_root: Directory for rendered frames; defaults next to inputs.
         :param ik_solver: ``jacobian`` (P0) or ``mink`` (not yet implemented).
         :param hand_type: ``left`` or ``right`` (``both`` reserved for P4).
+        :param enable_depth_occlusion: P2 depth-aware composite using MoGe scene depth.
+        :param depth_epsilon_m: Robot wins if ``D_robot <= D_scene + epsilon``.
+        :param max_depth_invalid_ratio: Reject robot overlay when invalid depth fraction
+            inside robot mask exceeds this (fallback: hand-inpainted original).
         """
         super().__init__(*args, **kwargs)
         if hand_type == "both":
@@ -127,6 +136,7 @@ class VideoHandToRobotRenderMapper(Mapper):
         self._hand_sides = [hand_type]
         self.enable_depth_occlusion = bool(enable_depth_occlusion)
         self.depth_epsilon_m = float(depth_epsilon_m)
+        self.max_depth_invalid_ratio = float(max_depth_invalid_ratio)
         self.hand_mask_method = hand_mask_method
         self.inpaint_method = inpaint_method
         self.edge_blur = int(edge_blur)
@@ -135,6 +145,7 @@ class VideoHandToRobotRenderMapper(Mapper):
         self._renderers: Dict[str, RobotArmRenderer] = {}
         self._base_T_world: Dict[str, Optional[np.ndarray]] = {hand_type: None}
         self._clip_wrist_refs: Dict[Tuple[int, str], Optional[np.ndarray]] = {}
+        self._clip_depth_aligners: Dict[Tuple[int, str], DepthAligner] = {}
 
     # ------------------------------------------------------------------
     # Lazy init / IO helpers
@@ -323,6 +334,66 @@ class VideoHandToRobotRenderMapper(Mapper):
 
         return scene_depth, fov_y_deg, intrinsics
 
+    def _fit_clip_depth_aligner(
+        self,
+        clip_camera: dict,
+        joints_list: Sequence,
+        hand_index_by_frame: Dict[int, int],
+        frame_ids: Sequence[int],
+        frame_shape: Tuple[int, ...],
+    ) -> DepthAligner:
+        """Fit per-clip affine depth aligner from MANO wrist z vs MoGe depth."""
+        if not self.enable_depth_occlusion or not clip_camera:
+            return DepthAligner()
+        depths = clip_camera.get(CameraCalibrationKeys.depth) or clip_camera.get("depth")
+        if not isinstance(depths, (list, tuple)) or not depths:
+            return DepthAligner()
+
+        scene_vals: List[float] = []
+        metric_vals: List[float] = []
+        h, w = frame_shape[:2]
+        # Sample up to ~40 frames for speed.
+        step = max(1, len(frame_ids) // 40)
+        for frame_id in list(frame_ids)[::step]:
+            fid = int(frame_id)
+            if fid < 0 or fid >= len(depths):
+                continue
+            hand_idx = hand_index_by_frame.get(fid)
+            if hand_idx is None or hand_idx >= len(joints_list):
+                continue
+            joints = np.asarray(joints_list[hand_idx], dtype=np.float64)
+            if joints.ndim != 2 or joints.shape[0] < 1:
+                continue
+            _, _, intrinsics = self._load_camera_inputs(clip_camera, fid, frame_shape)
+            fx = float(intrinsics.get("fx", 0.5 * w / np.tan(np.deg2rad(35.0))))
+            fy = float(intrinsics.get("fy", fx))
+            cx = float(intrinsics.get("cx", 0.5 * w))
+            cy = float(intrinsics.get("cy", 0.5 * h))
+            # Use wrist + a few finger tips when available (MANO 0,4,8,12,16,20).
+            idxs = [0] + [i for i in (4, 8, 12, 16, 20) if i < joints.shape[0]]
+            scene = np.asarray(load_numpy(depths[fid]), dtype=np.float32)
+            scene = resize_depth(scene, h, w)
+            for ji in idxs:
+                u, v, ok = palm_pixel_from_joints(joints[ji : ji + 1], fx, fy, cx, cy)
+                if not ok:
+                    continue
+                ui, vi = int(round(u)), int(round(v))
+                if ui < 0 or vi < 0 or ui >= w or vi >= h:
+                    continue
+                sd = float(scene[vi, ui])
+                md = float(joints[ji, 2])
+                if np.isfinite(sd) and np.isfinite(md) and sd > 1e-4 and md > 1e-4:
+                    scene_vals.append(sd)
+                    metric_vals.append(md)
+        aligner = fit_depth_aligner(scene_vals, metric_vals)
+        logger.debug(
+            "Depth aligner fit pairs={} scale={:.4f} bias={:.4f}",
+            len(scene_vals),
+            aligner.scale,
+            aligner.bias,
+        )
+        return aligner
+
     def _render_and_composite(
         self,
         frame_bgr: np.ndarray,
@@ -333,7 +404,8 @@ class VideoHandToRobotRenderMapper(Mapper):
         scene_depth: Optional[np.ndarray],
         fov_y_deg: float,
         hand_side: str,
-    ) -> np.ndarray:
+        depth_aligner: Optional[DepthAligner] = None,
+    ) -> Tuple[np.ndarray, dict]:
         renderer = self._renderers[hand_side]
         renderer.set_camera_fov(fov_y_deg)
         rgb, mask, depth = renderer.render_frame(
@@ -345,10 +417,34 @@ class VideoHandToRobotRenderMapper(Mapper):
         )
         # MuJoCo RGB is RGB; OpenCV frames are BGR.
         robot_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        composite_meta = {
+            "ok": True,
+            "quality_flag": "ok",
+            "depth_invalid_ratio": 0.0,
+            "depth_occlusion_used": False,
+        }
         if self.enable_depth_occlusion and depth is not None and scene_depth is not None:
-            # P2 path placeholder: fall back to mask blend until depth aligner lands.
-            logger.debug("Depth occlusion enabled but aligner not configured; using mask blend.")
-        return composite_robot_on_frame(
+            result, depth_meta = composite_with_depth(
+                frame_bgr,
+                robot_bgr,
+                mask,
+                depth,
+                scene_depth,
+                depth_aligner=depth_aligner or DepthAligner(),
+                hand_mask=hand_mask,
+                epsilon_m=self.depth_epsilon_m,
+                max_invalid_ratio=self.max_depth_invalid_ratio,
+                edge_blur=self.edge_blur,
+                inpaint_method=self.inpaint_method,
+            )
+            composite_meta.update(depth_meta)
+            composite_meta["depth_occlusion_used"] = True
+            return result, composite_meta
+
+        if self.enable_depth_occlusion:
+            composite_meta["quality_flag"] = "depth_missing"
+            composite_meta["ok"] = False
+        result = composite_robot_on_frame(
             frame_bgr,
             robot_bgr,
             mask,
@@ -356,6 +452,7 @@ class VideoHandToRobotRenderMapper(Mapper):
             edge_blur=self.edge_blur,
             inpaint_method=self.inpaint_method,
         )
+        return result, composite_meta
 
     def _aggregate_quality(self, records: List[dict], hand_side: str) -> dict:
         if not records:
@@ -367,23 +464,36 @@ class VideoHandToRobotRenderMapper(Mapper):
                 "hand_side": hand_side,
                 "ik_success_rate": 0.0,
                 "failed_frame_ids": [],
+                "enable_depth_occlusion": self.enable_depth_occlusion,
             }
-        ok_flags = [r.get("quality_flag") == "ok" for r in records]
+        ik_success = [bool(r.get("ik_ok", r.get("quality_flag") == "ok")) for r in records]
         pos_errs = [r.get("position_error_m") for r in records]
         rot_errs = [r.get("orientation_error_rad") for r in records]
         failed = [int(r["frame_id"]) for r in records if r.get("quality_flag") == "ik_failed"]
+        depth_invalid = [int(r["frame_id"]) for r in records if r.get("quality_flag") == "depth_invalid"]
+        depth_ratios = [
+            float(r["depth_invalid_ratio"])
+            for r in records
+            if r.get("depth_invalid_ratio") is not None and np.isfinite(r.get("depth_invalid_ratio"))
+        ]
         return {
             "schema_version": 1,
             "calibration_version": self.calibration.version_name,
             "action_frame": self.calibration.action_frame,
             "render_frame": "camera",
             "hand_side": hand_side,
-            "ik_success_rate": float(np.mean(ok_flags)),
+            "ik_success_rate": float(np.mean(ik_success)) if ik_success else 0.0,
             "workspace_projection_rate": float(np.mean([bool(r.get("workspace_projected")) for r in records])),
             "median_position_error_m": _median_or_nan(pos_errs),
             "median_orientation_error_rad": _median_or_nan(rot_errs),
             "failed_frame_ids": failed,
             "num_frames": len(records),
+            "enable_depth_occlusion": self.enable_depth_occlusion,
+            "median_depth_invalid_ratio": _median_or_nan(depth_ratios),
+            "depth_invalid_frame_ids": depth_invalid,
+            "depth_occlusion_frame_rate": float(
+                np.mean([bool(r.get("depth_occlusion_used")) for r in records])
+            ),
         }
 
     # ------------------------------------------------------------------
@@ -465,6 +575,26 @@ class VideoHandToRobotRenderMapper(Mapper):
                 side_cal = self.calibration.get_side(hand_side)
                 renderer = self._renderers[hand_side]
 
+                # Probe first readable frame for depth-aligner fit resolution.
+                probe_shape = None
+                for fid0 in frame_ids:
+                    fid0 = int(fid0)
+                    if 0 <= fid0 < len(clip_frames) and os.path.isfile(clip_frames[fid0]):
+                        img0 = cv2.imread(clip_frames[fid0])
+                        if img0 is not None:
+                            probe_shape = img0.shape
+                            break
+                depth_aligner = DepthAligner()
+                if self.enable_depth_occlusion and probe_shape is not None:
+                    depth_aligner = self._fit_clip_depth_aligner(
+                        clip_camera,
+                        joints_list,
+                        hand_index_by_frame,
+                        frame_ids,
+                        probe_shape,
+                    )
+                self._clip_depth_aligners[(clip_idx, hand_side)] = depth_aligner
+
                 for t, frame_id in enumerate(frame_ids):
                     frame_id = int(frame_id)
                     if frame_id < 0 or frame_id >= len(clip_frames) or frame_id >= len(cam_c2w):
@@ -512,8 +642,11 @@ class VideoHandToRobotRenderMapper(Mapper):
                     else:
                         hand_mask = np.zeros(frame_img.shape[:2], dtype=bool)
 
+                    composite_meta: dict = {}
+                    # Capture IK success before depth may rewrite quality_flag.
+                    ik_ok = quality_flag == "ok"
                     if render_ok:
-                        result = self._render_and_composite(
+                        result, composite_meta = self._render_and_composite(
                             frame_img,
                             q,
                             finger_pos,
@@ -522,7 +655,11 @@ class VideoHandToRobotRenderMapper(Mapper):
                             scene_depth,
                             fov_y_deg,
                             hand_side,
+                            depth_aligner=depth_aligner,
                         )
+                        # Prefer depth-gate flag when IK already ok.
+                        if quality_flag == "ok" and composite_meta.get("quality_flag") not in (None, "ok"):
+                            quality_flag = str(composite_meta["quality_flag"])
                     else:
                         result = frame_img
 
@@ -535,7 +672,12 @@ class VideoHandToRobotRenderMapper(Mapper):
                             "frame_id": frame_id,
                             "hand_side": hand_side,
                             "quality_flag": quality_flag,
+                            "ik_ok": ik_ok,
                             "output_path": out_path,
+                            "depth_invalid_ratio": composite_meta.get("depth_invalid_ratio"),
+                            "depth_occlusion_used": bool(composite_meta.get("depth_occlusion_used")),
+                            "depth_aligner_scale": float(depth_aligner.scale),
+                            "depth_aligner_bias": float(depth_aligner.bias),
                             **ik_metrics,
                         }
                     )

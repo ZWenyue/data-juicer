@@ -16,8 +16,10 @@
 | `02_calibrate_synthetic.sh` | 合成数据标定 smoke |
 | `03_calibrate_galaxea.sh` | Galaxea 真机 FK/IK 诊断 + 代理标定 |
 | `04_calibrate_ego.sh` | **真人手** pipeline sample 标定 → 版本化 YAML |
+| `04_calibrate_egodex.sh` | **EgoDex** 真人手 P1 标定（IK≥90%、重投影&lt;15px） |
 | `05_accept_render.sh` | 渲染 Mapper 验收 |
 | `05_accept_calibrate.sh` | 标定工具验收 |
+| `05_accept_depth.sh` | **P2** depth-aware 遮挡验收 |
 | `06_run_smoke.sh` | 本地一键 smoke（build→合成标定→双验收） |
 | `07_process_ego_to_robot.sh` | 按 recipe 跑 ego→机器人画面 LeRobot |
 | `configs/ego_to_robot_recipe.yaml` | 处理配方模板 |
@@ -51,9 +53,26 @@ EPISODE=2 SIDE=right \
   bash b/scripts/hand2robot/03_calibrate_galaxea.sh
 ```
 
-### 3. Ego 人手标定（生产前必做）
+### 3. Ego / EgoDex 人手标定（生产前必做）
 
-先有一份含 `hand_action_tags` + `cam_c2w` 的 pipeline 输出（pkl/parquet/jsonl），再：
+**EgoDex LeRobot（推荐，已有真人手 + 相机）**：
+
+```bash
+bash b/scripts/hand2robot/04_calibrate_egodex.sh
+# 或
+EGODEX_ROOT=/mnt/r/DATA/EgoDex/test_lerobot EPISODE=2 SIDE=right \
+  bash b/scripts/hand2robot/04_calibrate_egodex.sh
+```
+
+P1 退出条件（写入报告 `p1_human_hand`）：
+
+- 帧数 ≥ 100
+- IK 成功率 ≥ 90%
+- 重投影中位误差 &lt; 15 px
+
+产出：`b/d/hand2robot/calibration/r1_right_egodex_v1.yaml`
+
+**自有 ego pipeline sample**（含 `hand_action_tags` + `cam_c2w`）：
 
 ```bash
 DATA_PATH=/path/to/pipeline_sample.pkl \
@@ -61,9 +80,16 @@ SIDE=right VERSION=v2 \
   bash b/scripts/hand2robot/04_calibrate_ego.sh
 ```
 
-写出：`b/d/hand2robot/calibration/r1_right_v2.yaml`。
+### 4. P2 深度遮挡验收
 
-### 4. Ego → 机器人数据
+```bash
+bash b/scripts/hand2robot/05_accept_depth.sh
+```
+
+要求 `enable_depth_occlusion: true`，场景 depth 来自 MoGe（`camera_calibration_moge_tags.depth`）。
+无效 depth 占比（机器人 mask 内）≥20% 时该帧降级为仅 inpaint，并标记 `depth_invalid`。
+
+### 5. Ego → 机器人数据
 
 先改 `configs/ego_to_robot_recipe.yaml` 里的模型权重 / MANO 路径，或用环境变量覆盖：
 

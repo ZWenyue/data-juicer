@@ -3,10 +3,69 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
+
+
+@dataclass
+class DepthAligner:
+    """Affine map scene depth → metric meters: ``scale * d + bias``.
+
+    MoGe-2 is often already near-metric; wrist MANO z is used to fit residual
+    scale/bias per clip when both are available.
+    """
+
+    scale: float = 1.0
+    bias: float = 0.0
+
+    def __call__(self, scene_depth: np.ndarray) -> np.ndarray:
+        d = np.asarray(scene_depth, dtype=np.float32)
+        return (self.scale * d + self.bias).astype(np.float32)
+
+
+def fit_depth_aligner(
+    scene_depths: Sequence[float],
+    metric_depths_m: Sequence[float],
+    min_pairs: int = 4,
+    max_scale: float = 5.0,
+) -> DepthAligner:
+    """Least-squares affine fit ``metric ≈ scale * scene + bias``.
+
+    Falls back to identity when too few pairs or the fit is unstable.
+    """
+    s = np.asarray(scene_depths, dtype=np.float64).reshape(-1)
+    m = np.asarray(metric_depths_m, dtype=np.float64).reshape(-1)
+    ok = np.isfinite(s) & np.isfinite(m) & (s > 1e-4) & (m > 1e-4)
+    s, m = s[ok], m[ok]
+    if s.size < min_pairs:
+        return DepthAligner(1.0, 0.0)
+    # Robust: median ratio as scale seed, then 1-D LS with bias.
+    A = np.stack([s, np.ones_like(s)], axis=1)
+    try:
+        coef, _, _, _ = np.linalg.lstsq(A, m, rcond=None)
+        scale, bias = float(coef[0]), float(coef[1])
+    except np.linalg.LinAlgError:
+        return DepthAligner(1.0, 0.0)
+    if not np.isfinite(scale) or not np.isfinite(bias) or abs(scale) < 1e-3 or abs(scale) > max_scale:
+        # Degenerate → median ratio, zero bias.
+        ratio = np.median(m / s)
+        if not np.isfinite(ratio) or abs(ratio) < 1e-3 or abs(ratio) > max_scale:
+            return DepthAligner(1.0, 0.0)
+        return DepthAligner(float(ratio), 0.0)
+    return DepthAligner(scale, bias)
+
+
+def resize_depth(depth: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Nearest-neighbor resize for depth maps (preserves discontinuities)."""
+    d = np.asarray(depth, dtype=np.float32)
+    if d.ndim != 2:
+        raise ValueError(f"depth must be HxW, got {d.shape}")
+    if d.shape == (height, width):
+        return d
+    return cv2.resize(d, (width, height), interpolation=cv2.INTER_NEAREST)
 
 
 def bbox_to_mask(bbox: Sequence[float], img_shape: Tuple[int, ...], expand_ratio: float = 1.3) -> np.ndarray:
@@ -63,6 +122,81 @@ def alpha_blend(background: np.ndarray, foreground: np.ndarray, mask: np.ndarray
     return out.astype(np.uint8)
 
 
+def _inpaint_hand(
+    video_frame: np.ndarray,
+    hand_mask: Optional[np.ndarray],
+    inpaint_method: str = "telea",
+) -> np.ndarray:
+    result = video_frame.copy()
+    if hand_mask is None or not np.any(hand_mask):
+        return result
+    inpaint_mask = hand_mask.astype(np.uint8) * 255
+    flag = cv2.INPAINT_TELEA if inpaint_method != "ns" else cv2.INPAINT_NS
+    return cv2.inpaint(result, inpaint_mask, 5, flag)
+
+
+def composite_with_depth(
+    video_frame: np.ndarray,
+    robot_rgb: np.ndarray,
+    robot_mask: np.ndarray,
+    robot_depth_m: np.ndarray,
+    scene_depth: np.ndarray,
+    depth_aligner: Optional[Union[DepthAligner, Callable[[np.ndarray], np.ndarray]]] = None,
+    hand_mask: Optional[np.ndarray] = None,
+    epsilon_m: float = 0.02,
+    max_invalid_ratio: float = 0.2,
+    edge_blur: int = 3,
+    inpaint_method: str = "telea",
+) -> Tuple[np.ndarray, dict]:
+    """P2 depth-aware composite.
+
+    Robot is drawn only where ``robot_depth <= aligned_scene_depth + epsilon``.
+    Returns ``(image, meta)`` with ``ok`` / ``depth_invalid_ratio`` / ``quality_flag``.
+    """
+    inpainted = _inpaint_hand(video_frame, hand_mask, inpaint_method=inpaint_method)
+    h, w = inpainted.shape[:2]
+    robot_d = resize_depth(robot_depth_m, h, w)
+    scene_raw = resize_depth(scene_depth, h, w)
+    aligner = depth_aligner if depth_aligner is not None else DepthAligner()
+    scene_m = np.asarray(aligner(scene_raw), dtype=np.float32)
+
+    rmask = np.asarray(robot_mask, dtype=bool)
+    if rmask.shape != (h, w):
+        rmask = cv2.resize(rmask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+
+    valid = (
+        rmask
+        & np.isfinite(robot_d)
+        & np.isfinite(scene_m)
+        & (robot_d > 0)
+        & (scene_m > 0)
+    )
+    n_robot = int(rmask.sum())
+    invalid_ratio = 1.0 - (float(valid.sum()) / max(n_robot, 1))
+    meta = {
+        "ok": True,
+        "quality_flag": "ok",
+        "depth_invalid_ratio": float(invalid_ratio),
+        "visible_pixel_count": 0,
+        "robot_pixel_count": n_robot,
+    }
+    if n_robot == 0:
+        meta["quality_flag"] = "no_robot_mask"
+        return inpainted, meta
+    if invalid_ratio > max_invalid_ratio:
+        meta["ok"] = False
+        meta["quality_flag"] = "depth_invalid"
+        return inpainted, meta
+
+    visible = valid & (robot_d <= scene_m + float(epsilon_m))
+    meta["visible_pixel_count"] = int(visible.sum())
+    # Resize robot RGB if needed.
+    fg = robot_rgb
+    if fg.shape[:2] != (h, w):
+        fg = cv2.resize(fg, (w, h), interpolation=cv2.INTER_LINEAR)
+    return alpha_blend(inpainted, fg, visible, edge_blur=edge_blur), meta
+
+
 def composite_robot_on_frame(
     video_frame: np.ndarray,
     robot_rgb: np.ndarray,
@@ -72,9 +206,5 @@ def composite_robot_on_frame(
     inpaint_method: str = "telea",
 ) -> np.ndarray:
     """P0/P1 compositing without depth occlusion."""
-    result = video_frame.copy()
-    if hand_mask is not None:
-        inpaint_mask = hand_mask.astype(np.uint8) * 255
-        flag = cv2.INPAINT_TELEA if inpaint_method != "ns" else cv2.INPAINT_NS
-        result = cv2.inpaint(result, inpaint_mask, 5, flag)
+    result = _inpaint_hand(video_frame, hand_mask, inpaint_method=inpaint_method)
     return alpha_blend(result, robot_rgb, robot_mask, edge_blur=edge_blur)

@@ -1,0 +1,26 @@
+{
+  "decision": "go",
+  "checks": {
+    "unit": {
+      "robot_in_front_visible": true,
+      "robot_behind_occluded": true,
+      "depth_invalid_gate": true,
+      "aligner_scale_ok": true
+    },
+    "mapper_depth_path": {
+      "far_used": true,
+      "near_used": true,
+      "far_flag": "ok",
+      "near_flag": "ok",
+      "far_visible": 16,
+      "near_visible": 0,
+      "far_invalid_ratio": 0.0,
+      "near_invalid_ratio": 0.0,
+      "output_shape_ok": true
+    },
+    "mapper_depth_ok": true,
+    "unit_all_pass": true
+  },
+  "errors": [],
+  "stage": "P2_depth_occlusion"
+}

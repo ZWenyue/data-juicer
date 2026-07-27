@@ -2,7 +2,15 @@
 """Hand → robot render helpers (transforms, IK, compositing, MuJoCo renderer)."""
 
 from .calibration import HandToRobotCalibration, SideCalibration, load_calibration, save_calibration
-from .composite import alpha_blend, bbox_to_mask, composite_robot_on_frame, project_joints_mask
+from .composite import (
+    DepthAligner,
+    alpha_blend,
+    bbox_to_mask,
+    composite_robot_on_frame,
+    composite_with_depth,
+    fit_depth_aligner,
+    project_joints_mask,
+)
 from .ik import jacobian_ik, map_gripper_to_finger
 from .renderer import RobotArmRenderer
 from .retarget import palm_pixel_from_joints, project_point_cam, retarget_wrist_to_ee, world_to_camera
@@ -16,13 +24,16 @@ from .transforms import (
 )
 
 __all__ = [
+    "DepthAligner",
     "HandToRobotCalibration",
     "SideCalibration",
     "RobotArmRenderer",
     "alpha_blend",
     "bbox_to_mask",
     "composite_robot_on_frame",
+    "composite_with_depth",
     "compute_mujoco_fovy",
+    "fit_depth_aligner",
     "invert_T",
     "jacobian_ik",
     "load_calibration",

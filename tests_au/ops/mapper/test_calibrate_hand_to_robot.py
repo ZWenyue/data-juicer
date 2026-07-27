@@ -11,15 +11,21 @@ import numpy as np
 
 from data_juicer._au.utils.hand_to_robot.calibrate import (
     CalibWeights,
+    clip_from_egodex_lerobot,
     clip_from_galaxea_lerobot,
     evaluate_galaxea_fk_ik,
+    is_egodex_lerobot,
     make_synthetic_clip,
     optimize_side_calibration,
+    p1_metrics_from_eval,
     select_anchor_indices,
 )
 
 GALAXEA_ROOT = Path("/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001")
 GALAXEA_AVAILABLE = GALAXEA_ROOT.is_dir() and (GALAXEA_ROOT / "data").is_dir()
+EGODEX_ROOT = Path("/mnt/r/DATA/EgoDex/test_lerobot")
+EGODEX_AVAILABLE = EGODEX_ROOT.is_dir() and (EGODEX_ROOT / "data").is_dir()
+
 from data_juicer._au.utils.hand_to_robot.calibration import load_calibration, save_calibration
 from data_juicer._au.utils.hand_to_robot.retarget import project_point_cam, retarget_wrist_to_ee
 
@@ -129,6 +135,27 @@ class TestCalibrateHelpers(unittest.TestCase):
         self.assertGreaterEqual(len(clip.frames), 8)
         self.assertEqual(clip.side, "right")
         self.assertIn("parquet", meta)
+
+    @unittest.skipUnless(EGODEX_AVAILABLE, "EgoDex test_lerobot missing")
+    def test_egodex_clip_and_p1_helper(self):
+        self.assertTrue(is_egodex_lerobot(EGODEX_ROOT))
+        clip, meta = clip_from_egodex_lerobot(
+            EGODEX_ROOT,
+            side="right",
+            episode=2,
+            max_frames=24,
+            stride=8,
+            min_wrist_conf=0.3,
+        )
+        self.assertGreaterEqual(len(clip.frames), 4)
+        self.assertEqual(clip.frames[0].state.shape, (8,))
+        self.assertIsNotNone(clip.frames[0].joints_cam)
+        self.assertEqual(meta["side"], "right")
+        fake = p1_metrics_from_eval(
+            {"ik_success_rate": 0.95, "median_reprojection_error_px": 10.0},
+            num_frames=120,
+        )
+        self.assertTrue(fake["checks"]["p1_pass"])
 
 
 if __name__ == "__main__":

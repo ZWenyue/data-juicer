@@ -74,7 +74,9 @@ process:
       hand_type: 'right'
       ik_solver: 'jacobian'
       hand_mask_method: 'joints_bbox_union'
-      enable_depth_occlusion: false
+      enable_depth_occlusion: true             # P2 depth-aware occlusion
+      depth_epsilon_m: 0.02
+      max_depth_invalid_ratio: 0.2
       output_frame_field: 'robot_render_frames'
       quality_field: 'hand_to_robot_render_quality'
       output_root: './b/d/hand2robot/runs/ego_process/robot_frames'

@@ -453,7 +453,7 @@ python tests_au/ops/mapper/accept_calibrate_hand_to_robot.py
 |------|------|----------------|
 | 人手真实标定数据 | 需 ego pipeline 产出 `hand_action_tags`+`cam_c2w` | 在指定 ego 子集跑通后升 YAML 版本 |
 | 机体 vs 臂根坐标系 | Galaxea EE 有常偏置 | 完整上身 MJCF 或显式 $T_{\mathrm{torso},arm}$ |
-| 深度遮挡 | `enable_depth_occlusion` 默认关 | P2 depth-aware composite |
+| 深度遮挡 | `enable_depth_occlusion` + `composite_with_depth` + clip 级 `DepthAligner` | P2 已落地；见 `05_accept_depth.sh` |
 | mink IK | `NotImplemented` | 奇异密集轨迹再启用 |
 | 双臂 | `hand_type=both` 拒绝 | P4 双模型调度 |
 | head 相机外参 | LeRobot 未直接提供 | 渲染叠加 QA 需额外标定 head→arm |
@@ -492,5 +492,5 @@ python tests_au/ops/mapper/accept_calibrate_hand_to_robot.py
 | 非破坏输出 | `output_frame_field=robot_render_frames` |
 | P0 资产 | `build_r1_arm_mjcf.py` + `b/d/urdf/generated/` |
 | P1 IK≥90% | `accept_*` + Galaxea `galaxea_fk_ik` 报告字段 |
-| P2 深度遮挡 | Mapper 开关预留，合成逻辑待补 |
+| P2 深度遮挡 | `composite.composite_with_depth` + Mapper 开关；`accept_depth_occlusion` |
 | 扩展于 `_au` / 测于 `tests_au` | 已遵守 |
