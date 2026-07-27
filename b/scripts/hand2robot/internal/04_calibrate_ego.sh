@@ -8,7 +8,7 @@
 #   DATA_PATH=... SAMPLE_IDX=0 VIDEO_IDX=0 SIDE=right \
 #     bash b/scripts/hand2robot/04_calibrate_ego.sh
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 DATA_PATH="${DATA_PATH:-}"
 if [[ -z "$DATA_PATH" ]]; then
@@ -21,7 +21,7 @@ fi
 [[ -f "$DATA_PATH" ]] || { echo "file not found: $DATA_PATH" >&2; exit 1; }
 [[ -f "$INIT_CALIB" ]] || { echo "missing init calib: $INIT_CALIB" >&2; exit 1; }
 [[ -f "$MODEL_XML" ]] || {
-  echo "missing model: $MODEL_XML — run 01_build_assets.sh first" >&2
+  echo "missing model: $MODEL_XML — run setup.sh first" >&2
   exit 1
 }
 
@@ -54,4 +54,4 @@ python -m data_juicer._au.tools.calibrate_hand_to_robot \
 
 echo "Report: $REPORT_DIR/calibrate_hand_to_robot_report.json"
 echo "YAML:   $OUTPUT_CALIB"
-echo "Next: set CALIBRATION_PATH=$OUTPUT_CALIB when running 07_process_ego_to_robot.sh"
+echo "Next: set CALIBRATION_PATH=$OUTPUT_CALIB when running process.sh"

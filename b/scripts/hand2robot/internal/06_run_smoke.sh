@@ -5,7 +5,7 @@
 #   SIDE=left bash b/scripts/hand2robot/06_run_smoke.sh
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/_env.sh"
+source "$SCRIPT_DIR/../_env.sh"
 
 export OUT_ROOT="${OUT_ROOT:-$REPO_ROOT/b/d/hand2robot/runs/smoke_$(date +%Y%m%d_%H%M%S)}"
 mkdir -p "$OUT_ROOT"

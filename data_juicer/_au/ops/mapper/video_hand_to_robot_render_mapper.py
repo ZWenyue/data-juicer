@@ -28,6 +28,7 @@ from ...utils.hand_to_robot.composite import (
     composite_robot_on_frame,
     composite_with_depth,
     fit_depth_aligner,
+    merge_render_layers,
     project_joints_mask,
     resize_depth,
 )
@@ -90,30 +91,31 @@ class VideoHandToRobotRenderMapper(Mapper):
         :param calibration_path: Versioned retarget/base/camera YAML.
         :param output_root: Directory for rendered frames; defaults next to inputs.
         :param ik_solver: ``jacobian`` (P0) or ``mink`` (not yet implemented).
-        :param hand_type: ``left`` or ``right`` (``both`` reserved for P4).
+        :param hand_type: ``left``, ``right``, or ``both`` (dual-arm layer merge).
         :param enable_depth_occlusion: P2 depth-aware composite using MoGe scene depth.
         :param depth_epsilon_m: Robot wins if ``D_robot <= D_scene + epsilon``.
         :param max_depth_invalid_ratio: Reject robot overlay when invalid depth fraction
             inside robot mask exceeds this (fallback: hand-inpainted original).
         """
         super().__init__(*args, **kwargs)
-        if hand_type == "both":
-            raise NotImplementedError("P0-P3 only support one side; dual-arm is a P4 feature")
-        if hand_type not in ("left", "right"):
-            raise ValueError(f"hand_type must be left/right, got {hand_type}")
+        if hand_type not in ("left", "right", "both"):
+            raise ValueError(f"hand_type must be left/right/both, got {hand_type}")
         if ik_solver not in ("jacobian", "mink"):
             raise ValueError(f"Unsupported ik_solver: {ik_solver}")
         if ik_solver == "mink":
             raise NotImplementedError("mink solver is planned for P1; use ik_solver='jacobian' for P0")
 
         self.robot_model_paths = {k: str(v) for k, v in dict(robot_model_paths).items()}
-        if hand_type not in self.robot_model_paths:
-            raise KeyError(f"robot_model_paths missing entry for hand_type={hand_type}")
+        required_sides = ("left", "right") if hand_type == "both" else (hand_type,)
+        for side in required_sides:
+            if side not in self.robot_model_paths:
+                raise KeyError(f"robot_model_paths missing entry for hand_type={side}")
 
         self.calibration_path = str(calibration_path)
         self.calibration: HandToRobotCalibration = load_calibration(self.calibration_path)
-        if hand_type not in self.calibration.sides:
-            raise KeyError(f"calibration missing side '{hand_type}': {self.calibration_path}")
+        for side in required_sides:
+            if side not in self.calibration.sides:
+                raise KeyError(f"calibration missing side '{side}': {self.calibration_path}")
 
         self.hand_reconstruction_field = hand_reconstruction_field
         self.hand_action_field = hand_action_field
@@ -133,7 +135,7 @@ class VideoHandToRobotRenderMapper(Mapper):
         self.max_hold_frames = int(max_hold_frames)
 
         self.hand_type = hand_type
-        self._hand_sides = [hand_type]
+        self._hand_sides = list(required_sides)
         self.enable_depth_occlusion = bool(enable_depth_occlusion)
         self.depth_epsilon_m = float(depth_epsilon_m)
         self.max_depth_invalid_ratio = float(max_depth_invalid_ratio)
@@ -143,7 +145,7 @@ class VideoHandToRobotRenderMapper(Mapper):
         self.gl_backend = gl_backend
 
         self._renderers: Dict[str, RobotArmRenderer] = {}
-        self._base_T_world: Dict[str, Optional[np.ndarray]] = {hand_type: None}
+        self._base_T_world: Dict[str, Optional[np.ndarray]] = {side: None for side in self._hand_sides}
         self._clip_wrist_refs: Dict[Tuple[int, str], Optional[np.ndarray]] = {}
         self._clip_depth_aligners: Dict[Tuple[int, str], DepthAligner] = {}
 
@@ -151,18 +153,18 @@ class VideoHandToRobotRenderMapper(Mapper):
     # Lazy init / IO helpers
     # ------------------------------------------------------------------
     def _init_renderer(self, width: int, height: int) -> None:
-        side = self.hand_type
-        renderer = self._renderers.get(side)
-        if renderer is not None and renderer.width == width and renderer.height == height:
-            return
-        if renderer is not None:
-            renderer.close()
-        self._renderers[side] = RobotArmRenderer(
-            self.robot_model_paths[side],
-            width=width,
-            height=height,
-            gl_backend=self.gl_backend,
-        )
+        for side in self._hand_sides:
+            renderer = self._renderers.get(side)
+            if renderer is not None and renderer.width == width and renderer.height == height:
+                continue
+            if renderer is not None:
+                renderer.close()
+            self._renderers[side] = RobotArmRenderer(
+                self.robot_model_paths[side],
+                width=width,
+                height=height,
+                gl_backend=self.gl_backend,
+            )
 
     def _atomic_imwrite(self, path: str | Path, image_bgr: np.ndarray) -> None:
         path = Path(path)
@@ -394,18 +396,14 @@ class VideoHandToRobotRenderMapper(Mapper):
         )
         return aligner
 
-    def _render_and_composite(
+    def _render_layer(
         self,
-        frame_bgr: np.ndarray,
         joint_angles: np.ndarray,
         finger_pos: float,
         T_camera_base: np.ndarray,
-        hand_mask: np.ndarray,
-        scene_depth: Optional[np.ndarray],
         fov_y_deg: float,
         hand_side: str,
-        depth_aligner: Optional[DepthAligner] = None,
-    ) -> Tuple[np.ndarray, dict]:
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         renderer = self._renderers[hand_side]
         renderer.set_camera_fov(fov_y_deg)
         rgb, mask, depth = renderer.render_frame(
@@ -415,20 +413,30 @@ class VideoHandToRobotRenderMapper(Mapper):
             self.calibration.T_mjcam_from_cvcam,
             render_depth=self.enable_depth_occlusion,
         )
-        # MuJoCo RGB is RGB; OpenCV frames are BGR.
-        robot_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), mask, depth
+
+    def _composite_render_layer(
+        self,
+        frame_bgr: np.ndarray,
+        robot_bgr: np.ndarray,
+        robot_mask: np.ndarray,
+        robot_depth: Optional[np.ndarray],
+        hand_mask: np.ndarray,
+        scene_depth: Optional[np.ndarray],
+        depth_aligner: Optional[DepthAligner] = None,
+    ) -> Tuple[np.ndarray, dict]:
         composite_meta = {
             "ok": True,
             "quality_flag": "ok",
             "depth_invalid_ratio": 0.0,
             "depth_occlusion_used": False,
         }
-        if self.enable_depth_occlusion and depth is not None and scene_depth is not None:
+        if self.enable_depth_occlusion and robot_depth is not None and scene_depth is not None:
             result, depth_meta = composite_with_depth(
                 frame_bgr,
                 robot_bgr,
-                mask,
-                depth,
+                robot_mask,
+                robot_depth,
                 scene_depth,
                 depth_aligner=depth_aligner or DepthAligner(),
                 hand_mask=hand_mask,
@@ -447,12 +455,41 @@ class VideoHandToRobotRenderMapper(Mapper):
         result = composite_robot_on_frame(
             frame_bgr,
             robot_bgr,
-            mask,
+            robot_mask,
             hand_mask=hand_mask,
             edge_blur=self.edge_blur,
             inpaint_method=self.inpaint_method,
         )
         return result, composite_meta
+
+    def _render_and_composite(
+        self,
+        frame_bgr: np.ndarray,
+        joint_angles: np.ndarray,
+        finger_pos: float,
+        T_camera_base: np.ndarray,
+        hand_mask: np.ndarray,
+        scene_depth: Optional[np.ndarray],
+        fov_y_deg: float,
+        hand_side: str,
+        depth_aligner: Optional[DepthAligner] = None,
+    ) -> Tuple[np.ndarray, dict]:
+        robot_bgr, robot_mask, robot_depth = self._render_layer(
+            joint_angles,
+            finger_pos,
+            T_camera_base,
+            fov_y_deg,
+            hand_side,
+        )
+        return self._composite_render_layer(
+            frame_bgr,
+            robot_bgr,
+            robot_mask,
+            robot_depth,
+            hand_mask,
+            scene_depth,
+            depth_aligner=depth_aligner,
+        )
 
     def _aggregate_quality(self, records: List[dict], hand_side: str) -> dict:
         if not records:
@@ -556,29 +593,23 @@ class VideoHandToRobotRenderMapper(Mapper):
                 logger.warning(f"clip {clip_idx}: unexpected cam_c2w shape {cam_c2w.shape}")
                 continue
 
+            side_runtime = {}
+            frame_union = set()
             for hand_side in self._hand_sides:
                 hand_data = (clip_hawor or {}).get(hand_side, {}) or {}
                 action_data = (clip_actions or {}).get(hand_side, {}) or {}
-                frame_ids = action_data.get("valid_frame_ids", []) or []
+                frame_ids = [int(fid) for fid in (action_data.get("valid_frame_ids", []) or [])]
                 states = action_data.get("states", []) or []
                 if not frame_ids or len(states) != len(frame_ids):
                     continue
-
                 hand_frame_ids = hand_data.get("frame_ids", []) or []
                 hand_index_by_frame = {int(fid): i for i, fid in enumerate(hand_frame_ids)}
                 joints_list = hand_data.get("joints_cam", []) or []
-
                 self._base_T_world[hand_side] = None
                 self._clip_wrist_refs[(clip_idx, hand_side)] = None
-                q_prev = None
-                hold_count = 0
-                side_cal = self.calibration.get_side(hand_side)
-                renderer = self._renderers[hand_side]
 
-                # Probe first readable frame for depth-aligner fit resolution.
                 probe_shape = None
                 for fid0 in frame_ids:
-                    fid0 = int(fid0)
                     if 0 <= fid0 < len(clip_frames) and os.path.isfile(clip_frames[fid0]):
                         img0 = cv2.imread(clip_frames[fid0])
                         if img0 is not None:
@@ -594,99 +625,154 @@ class VideoHandToRobotRenderMapper(Mapper):
                         probe_shape,
                     )
                 self._clip_depth_aligners[(clip_idx, hand_side)] = depth_aligner
+                side_runtime[hand_side] = {
+                    "hand_data": hand_data,
+                    "states": states,
+                    "frame_ids": frame_ids,
+                    "frame_to_t": {fid: i for i, fid in enumerate(frame_ids)},
+                    "hand_index_by_frame": hand_index_by_frame,
+                    "joints_list": joints_list,
+                    "q_prev": None,
+                    "hold_count": 0,
+                    "depth_aligner": depth_aligner,
+                }
+                frame_union.update(frame_ids)
 
-                for t, frame_id in enumerate(frame_ids):
-                    frame_id = int(frame_id)
-                    if frame_id < 0 or frame_id >= len(clip_frames) or frame_id >= len(cam_c2w):
-                        continue
-                    hand_idx = hand_index_by_frame.get(frame_id)
-                    frame_path = clip_frames[frame_id]
-                    frame_img = cv2.imread(frame_path)
-                    if frame_img is None:
-                        logger.warning(f"Failed to read {frame_path}")
-                        continue
+            for frame_id in sorted(frame_union):
+                if frame_id < 0 or frame_id >= len(clip_frames) or frame_id >= len(cam_c2w):
+                    continue
+                frame_path = clip_frames[frame_id]
+                frame_img = cv2.imread(frame_path)
+                if frame_img is None:
+                    logger.warning(f"Failed to read {frame_path}")
+                    continue
 
-                    T_world_ee = self._retarget_state_to_ee(states[t], hand_side, clip_idx)
+                scene_depth, fov_y_deg, intrinsics = self._load_camera_inputs(clip_camera, frame_id, frame_img.shape)
+                hand_mask_total = np.zeros(frame_img.shape[:2], dtype=bool)
+                side_records = []
+                layer_rgbs = []
+                layer_masks = []
+                layer_depths = []
+
+                for hand_side in self._hand_sides:
+                    runtime = side_runtime.get(hand_side)
+                    if runtime is None or frame_id not in runtime["frame_to_t"]:
+                        continue
+                    t = runtime["frame_to_t"][frame_id]
+                    hand_idx = runtime["hand_index_by_frame"].get(frame_id)
+                    joints_list = runtime["joints_list"]
+                    hand_data = runtime["hand_data"]
+                    if hand_idx is not None and hand_idx < len(joints_list):
+                        hand_mask = self._get_hand_mask(
+                            joints_list[hand_idx],
+                            hand_data,
+                            frame_img.shape,
+                            intrinsics,
+                            hand_idx,
+                        )
+                    else:
+                        hand_mask = np.zeros(frame_img.shape[:2], dtype=bool)
+                    hand_mask_total |= hand_mask
+
+                    state = runtime["states"][t]
+                    T_world_ee = self._retarget_state_to_ee(state, hand_side, clip_idx)
                     T_world_base, T_camera_base = self._compute_base_poses(cam_c2w, frame_id, hand_side)
                     T_base_ee = invert_T(T_world_base) @ T_world_ee
-                    finger_pos = self._map_gripper(float(states[t][7]) if len(states[t]) > 7 else 0.0)
+                    finger_pos = self._map_gripper(float(state[7]) if len(state) > 7 else 0.0)
 
-                    # Keep base pose consistent for IK FK and later render.
+                    renderer = self._renderers[hand_side]
+                    side_cal = self.calibration.get_side(hand_side)
                     renderer.set_base_pose(T_camera_base, self.calibration.T_mjcam_from_cvcam)
-                    if q_prev is None:
+                    if runtime["q_prev"] is None:
                         renderer.data.qpos[renderer.arm_qpos_addrs] = side_cal.q_reference
                         self.mujoco_forward(renderer)
 
-                    q, ok, ik_metrics = self._solve_ik(T_base_ee, q_prev, hand_side)
+                    q, ok, ik_metrics = self._solve_ik(T_base_ee, runtime["q_prev"], hand_side)
                     if ok:
-                        q_prev = q
-                        hold_count = 0
+                        runtime["q_prev"] = q
+                        runtime["hold_count"] = 0
                         render_ok = True
                         quality_flag = "ok"
                     elif (
                         self.ik_failure_policy == "hold_then_keep_original"
-                        and q_prev is not None
-                        and hold_count < self.max_hold_frames
+                        and runtime["q_prev"] is not None
+                        and runtime["hold_count"] < self.max_hold_frames
                     ):
-                        q = q_prev
-                        hold_count += 1
+                        q = runtime["q_prev"]
+                        runtime["hold_count"] += 1
                         render_ok = True
                         quality_flag = "ik_hold_last"
                     else:
                         render_ok = False
                         quality_flag = "ik_failed"
 
-                    scene_depth, fov_y_deg, intrinsics = self._load_camera_inputs(clip_camera, frame_id, frame_img.shape)
-                    if hand_idx is not None and hand_idx < len(joints_list):
-                        hand_mask = self._get_hand_mask(joints_list[hand_idx], hand_data, frame_img.shape, intrinsics, hand_idx)
-                    else:
-                        hand_mask = np.zeros(frame_img.shape[:2], dtype=bool)
+                    rec = {
+                        "clip_idx": clip_idx,
+                        "frame_id": frame_id,
+                        "hand_side": hand_side,
+                        "quality_flag": quality_flag,
+                        "ik_ok": quality_flag == "ok",
+                        "depth_aligner_scale": float(runtime["depth_aligner"].scale),
+                        "depth_aligner_bias": float(runtime["depth_aligner"].bias),
+                        **ik_metrics,
+                    }
+                    side_records.append(rec)
 
-                    composite_meta: dict = {}
-                    # Capture IK success before depth may rewrite quality_flag.
-                    ik_ok = quality_flag == "ok"
                     if render_ok:
-                        result, composite_meta = self._render_and_composite(
-                            frame_img,
+                        robot_bgr, robot_mask, robot_depth = self._render_layer(
                             q,
                             finger_pos,
                             T_camera_base,
-                            hand_mask,
-                            scene_depth,
                             fov_y_deg,
                             hand_side,
-                            depth_aligner=depth_aligner,
                         )
-                        # Prefer depth-gate flag when IK already ok.
-                        if quality_flag == "ok" and composite_meta.get("quality_flag") not in (None, "ok"):
-                            quality_flag = str(composite_meta["quality_flag"])
-                    else:
-                        result = frame_img
+                        layer_rgbs.append(robot_bgr)
+                        layer_masks.append(robot_mask)
+                        layer_depths.append(robot_depth)
 
-                    out_path = self._build_output_path(sample, clip_idx, frame_id, hand_side, frame_path)
-                    self._atomic_imwrite(out_path, result)
-                    output_frames[clip_idx][frame_id] = out_path
-                    quality_records.append(
-                        {
-                            "clip_idx": clip_idx,
-                            "frame_id": frame_id,
-                            "hand_side": hand_side,
-                            "quality_flag": quality_flag,
-                            "ik_ok": ik_ok,
-                            "output_path": out_path,
-                            "depth_invalid_ratio": composite_meta.get("depth_invalid_ratio"),
-                            "depth_occlusion_used": bool(composite_meta.get("depth_occlusion_used")),
-                            "depth_aligner_scale": float(depth_aligner.scale),
-                            "depth_aligner_bias": float(depth_aligner.bias),
-                            **ik_metrics,
-                        }
+                composite_meta = {}
+                if layer_rgbs:
+                    merged_bgr, merged_mask, merged_depth = merge_render_layers(
+                        layer_rgbs,
+                        layer_masks,
+                        layer_depths if self.enable_depth_occlusion else None,
                     )
+                    aligners = [side_runtime[s]["depth_aligner"] for s in side_runtime if frame_id in side_runtime[s]["frame_to_t"]]
+                    merged_aligner = DepthAligner(
+                        scale=float(np.mean([a.scale for a in aligners])) if aligners else 1.0,
+                        bias=float(np.mean([a.bias for a in aligners])) if aligners else 0.0,
+                    )
+                    result, composite_meta = self._composite_render_layer(
+                        frame_img,
+                        merged_bgr,
+                        merged_mask,
+                        merged_depth,
+                        hand_mask_total,
+                        scene_depth,
+                        depth_aligner=merged_aligner,
+                    )
+                else:
+                    result = frame_img
 
+                out_path = self._build_output_path(sample, clip_idx, frame_id, self.hand_type, frame_path)
+                self._atomic_imwrite(out_path, result)
+                output_frames[clip_idx][frame_id] = out_path
+                for rec in side_records:
+                    if rec["quality_flag"] == "ok" and composite_meta.get("quality_flag") not in (None, "ok"):
+                        rec["quality_flag"] = str(composite_meta["quality_flag"])
+                    rec["output_path"] = out_path
+                    rec["depth_invalid_ratio"] = composite_meta.get("depth_invalid_ratio")
+                    rec["depth_occlusion_used"] = bool(composite_meta.get("depth_occlusion_used"))
+                    quality_records.append(rec)
+
+        summary = self._aggregate_quality(quality_records, self.hand_type)
+        if self.hand_type == "both":
+            summary["per_side"] = {
+                side: self._aggregate_quality([r for r in quality_records if r.get("hand_side") == side], side)
+                for side in self._hand_sides
+            }
         meta[self.output_frame_field] = output_frames
-        meta[self.quality_field] = {
-            "frames": quality_records,
-            "summary": self._aggregate_quality(quality_records, self.hand_type),
-        }
+        meta[self.quality_field] = {"frames": quality_records, "summary": summary}
         return sample
 
     @staticmethod

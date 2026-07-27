@@ -7,7 +7,7 @@
 #   LEROBOT_ROOT=/path/to/Handle_Plates_... EPISODE=2 SIDE=right \
 #     bash b/scripts/hand2robot/03_calibrate_galaxea.sh
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 LEROBOT_ROOT="${LEROBOT_ROOT:-/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001}"
 EPISODE="${EPISODE:-2}"
@@ -19,7 +19,7 @@ OUTPUT_CALIB="${OUTPUT_CALIB:-$REPORT_DIR/r1_${SIDE}_galaxea_calibrated.yaml}"
 [[ -d "$LEROBOT_ROOT/data" ]] || { echo "not a LeRobot root: $LEROBOT_ROOT" >&2; exit 1; }
 [[ -f "$INIT_CALIB" ]] || { echo "missing init calib: $INIT_CALIB" >&2; exit 1; }
 [[ -f "$MODEL_XML" ]] || {
-  echo "missing model: $MODEL_XML — run 01_build_assets.sh first" >&2
+  echo "missing model: $MODEL_XML — run setup.sh first" >&2
   exit 1
 }
 

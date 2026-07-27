@@ -162,8 +162,9 @@ class TestHandToRobotRenderMapper(DataJuicerTestCaseBase):
         super().setUpClass()
         cls._tmpdir = tempfile.TemporaryDirectory()
         cls.gen_dir = Path(cls._tmpdir.name) / "generated"
-        build_all(urdf_path=DEFAULT_URDF, mesh_dir=DEFAULT_MESH_DIR, out_dir=cls.gen_dir, sides=("right",))
+        build_all(urdf_path=DEFAULT_URDF, mesh_dir=DEFAULT_MESH_DIR, out_dir=cls.gen_dir, sides=("left", "right"))
         cls.model_path = cls.gen_dir / "r1_lite_arm_right.xml"
+        cls.model_path_left = cls.gen_dir / "r1_lite_arm_left.xml"
         os.environ.setdefault("MUJOCO_GL", "egl")
 
     @classmethod
@@ -361,17 +362,62 @@ class TestHandToRobotRenderMapper(DataJuicerTestCaseBase):
         self.assertTrue(visual_ids.isdisjoint(collision_ids))
         renderer.close()
 
-    def test_both_hand_type_rejected(self):
+    def test_both_hand_type_supported(self):
         from data_juicer._au.ops.mapper.video_hand_to_robot_render_mapper import (
             VideoHandToRobotRenderMapper,
         )
 
-        with self.assertRaises(NotImplementedError):
-            VideoHandToRobotRenderMapper(
-                robot_model_paths={"right": str(self.model_path), "left": str(self.model_path)},
-                calibration_path=str(CALIB_RIGHT),
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            frame_path = tmp / "frame_000.png"
+            img = np.full((240, 320, 3), 40, dtype=np.uint8)
+            cv2.imwrite(str(frame_path), img)
+            cam_c2w = np.eye(4, dtype=np.float64)[None, ...]
+            cam_c2w_path = tmp / "c2w.npy"
+            np.save(cam_c2w_path, cam_c2w)
+
+            state_r = [0.25, 0.02, 0.45, 0.0, 0.0, 0.0, 0.0, 1.0]
+            state_l = [-0.25, 0.02, 0.45, 0.0, 0.0, 0.0, 0.0, 1.0]
+            joints_r = np.array([[0.2, 0.0, 0.45], [0.25, 0.02, 0.45], [0.25, -0.02, 0.45], [0.3, 0.0, 0.45]])
+            joints_l = np.array([[-0.2, 0.0, 0.45], [-0.25, 0.02, 0.45], [-0.25, -0.02, 0.45], [-0.3, 0.0, 0.45]])
+
+            sample = {
+                "id": "unit_both",
+                Fields.meta: {
+                    MetaKeys.video_frames: [[str(frame_path)]],
+                    MetaKeys.hand_reconstruction_hawor_tags: [
+                        {
+                            "right": {"frame_ids": [0], "joints_cam": [joints_r.tolist()]},
+                            "left": {"frame_ids": [0], "joints_cam": [joints_l.tolist()]},
+                        }
+                    ],
+                    MetaKeys.hand_action_tags: [
+                        {
+                            "right": {"valid_frame_ids": [0], "states": [state_r], "actions": [[0, 0, 0, 0, 0, 0, 1]]},
+                            "left": {"valid_frame_ids": [0], "states": [state_l], "actions": [[0, 0, 0, 0, 0, 0, 1]]},
+                        }
+                    ],
+                    MetaKeys.camera_calibration_moge_tags: [{}],
+                    MetaKeys.video_camera_pose_tags: [{CameraCalibrationKeys.cam_c2w: str(cam_c2w_path)}],
+                },
+            }
+
+            op = VideoHandToRobotRenderMapper(
+                robot_model_paths={"right": str(self.model_path), "left": str(self.model_path_left)},
+                calibration_path=str(REPO_ROOT / "b" / "d" / "hand2robot" / "calibration" / "r1_both_v1.yaml"),
                 hand_type="both",
+                output_root=str(tmp / "robot_render"),
+                gl_backend=os.environ.get("MUJOCO_GL", "egl"),
             )
+            out = op.process_single(sample)
+            quality = out[Fields.meta]["hand_to_robot_render_quality"]["summary"]
+            self.assertIn("per_side", quality)
+            self.assertIn("left", quality["per_side"])
+            self.assertIn("right", quality["per_side"])
+            self.assertTrue(Path(out[Fields.meta]["robot_render_frames"][0][0]).is_file())
+            for r in op._renderers.values():
+                r.close()
+            op._renderers.clear()
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ process:
       hand_reconstruction_field: 'hand_reconstruction_hawor_tags'
       camera_pose_field: 'video_camera_pose_tags'
       tag_field_name: 'hand_action_tags'
-      hand_type: 'right'   # P0–P1: single side only for robot render
+      hand_type: 'right'   # P4: 设为 'both'（需左右手重建）；导出自动拼 16/14
       batch_mode: true
 
   - video_hand_motion_smooth_mapper:
@@ -70,8 +70,9 @@ process:
   - video_hand_to_robot_render_mapper:
       robot_model_paths:
         right: 'b/d/urdf/generated/r1_lite_arm_right.xml'
+        left: 'b/d/urdf/generated/r1_lite_arm_left.xml'
       calibration_path: 'b/d/hand2robot/calibration/r1_right_egodex_v1.yaml'
-      hand_type: 'right'
+      hand_type: 'right'   # P4: 'both' + r1_both_* 标定
       ik_solver: 'jacobian'
       hand_mask_method: 'joints_bbox_union'
       enable_depth_occlusion: true             # P2 depth-aware occlusion
@@ -85,7 +86,7 @@ process:
 
   # P3: caption robot-view frames (stub for smoke; swap to VideoActionCaptioningMapper + VLM in prod)
   - video_hand_action_caption_stub_mapper:
-      hand_type: 'right'
+      hand_type: 'right'   # P4: 与 render 一致用 'both'
       frame_field: 'robot_render_frames'
       tag_field_name: 'hand_action_caption'
       batch_mode: true

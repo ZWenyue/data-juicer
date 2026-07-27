@@ -6,7 +6,7 @@
 #     CALIBRATION_PATH=b/d/hand2robot/calibration/r1_right_egodex_v1.yaml \
 #     bash b/scripts/hand2robot/08_build_vla_ab_manifest.sh
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 DATASET_PATH="${DATASET_PATH:-$REPO_ROOT/demos/ego_hand_action_annotation/data/demo-dataset.jsonl}"
 CALIBRATION_PATH="${CALIBRATION_PATH:-$CALIB_DIR/r1_${SIDE}_egodex_v1.yaml}"

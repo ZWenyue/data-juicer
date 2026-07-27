@@ -6,7 +6,7 @@
 #   EGODEX_ROOT=/mnt/r/DATA/EgoDex/test_lerobot EPISODE=2 SIDE=right \
 #     bash b/scripts/hand2robot/04_calibrate_egodex.sh
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 EGODEX_ROOT="${EGODEX_ROOT:-/mnt/r/DATA/EgoDex/test_lerobot}"
 EPISODE="${EPISODE:-2}"
@@ -19,7 +19,7 @@ OUTPUT_CALIB="${OUTPUT_CALIB:-$CALIB_DIR/r1_${SIDE}_${VERSION}.yaml}"
 [[ -d "$EGODEX_ROOT/data" ]] || { echo "not EgoDex root: $EGODEX_ROOT" >&2; exit 1; }
 [[ -f "$INIT_CALIB" ]] || { echo "missing init calib: $INIT_CALIB" >&2; exit 1; }
 [[ -f "$MODEL_XML" ]] || {
-  echo "missing model: $MODEL_XML — run 01_build_assets.sh first" >&2
+  echo "missing model: $MODEL_XML — run setup.sh first" >&2
   exit 1
 }
 

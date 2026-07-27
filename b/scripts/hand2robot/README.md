@@ -1,145 +1,100 @@
-# Hand→Robot 执行脚本
+# Hand→Robot 脚本（对外 4 个入口）
 
-本目录把「资产构建 → 标定 → 验收 → ego 处理」收成可直接跑的 bash。设计说明见：
+把「人手操作数据集 → R1 Lite 机器人视角 LeRobot」收成固定流程。设计说明：
 
-- [`b/d/hand2robot/hand_to_robot_code_design_summary.md`](../../d/hand2robot/hand_to_robot_code_design_summary.md)
-- [`b/d/hand2robot/hand_to_robot_render_design.md`](../../d/hand2robot/hand_to_robot_render_design.md)
+- `b/d/hand2robot/hand_to_robot_code_design_summary.md`
+- `b/d/hand2robot/hand_to_robot_render_design.md`
 
-（相对本 README：`../../d/hand2robot/...`）
+旧的编号脚本已移到 `internal/`，日常只用下面 4 个。
 
-## 脚本一览
+## 四个入口
 
-| 脚本 | 作用 |
-|------|------|
-| `_env.sh` | 公共环境（REPO、conda/`data_juicer`、`MUJOCO_GL=egl`） |
-| `01_build_assets.sh` | 生成 `r1_lite_arm_{left,right}.xml` |
-| `02_calibrate_synthetic.sh` | 合成数据标定 smoke |
-| `03_calibrate_galaxea.sh` | Galaxea 真机 FK/IK 诊断 + 代理标定 |
-| `04_calibrate_ego.sh` | **真人手** pipeline sample 标定 → 版本化 YAML |
-| `04_calibrate_egodex.sh` | **EgoDex** 真人手 P1 标定（IK≥90%、重投影&lt;15px） |
-| `05_accept_render.sh` | 渲染 Mapper 验收 |
-| `05_accept_calibrate.sh` | 标定工具验收 |
-| `05_accept_depth.sh` | **P2** depth-aware 遮挡验收 |
-| `05_accept_p3.sh` | **P3** Render→Caption→Export + action 不变性 |
-| `06_run_smoke.sh` | 本地一键 smoke（build→合成标定→双验收） |
-| `07_process_ego_to_robot.sh` | 按 recipe 跑 ego→机器人画面 LeRobot |
-| `08_build_vla_ab_manifest.sh` | 生成 VLA A/B 实验 manifest（baseline / no-depth / depth） |
-| `configs/ego_to_robot_recipe.yaml` | 处理配方模板 |
+| 脚本 | 何时用 |
+|------|--------|
+| `setup.sh` | 第一次 / 换机器：生成左右臂 MJCF |
+| `calibrate.sh` | 新人手数据集需要标定 YAML |
+| `process.sh` | **主入口**：数据集 → 机器人画面 + LeRobot（含 finalize） |
+| `check.sh` | 工程验收（p3/p4/depth/smoke） |
 
-默认产物目录：`b/d/hand2robot/runs/`。
-
-## 推荐顺序
-
-```mermaid
-flowchart LR
-  A[01_build_assets] --> B[06_run_smoke 或 02+05]
-  B --> C[03_calibrate_galaxea 可选]
-  C --> D[ego pipeline 产出 sample]
-  D --> E[04_calibrate_ego]
-  E --> F[07_process_ego_to_robot]
-```
-
-### 1. 本地 smoke（无真实视频）
+## 典型流程（EgoDex 举例）
 
 ```bash
-bash b/scripts/hand2robot/06_run_smoke.sh
+cd /mnt/r/share/zwy/Projects/data-juicer
+
+# 0) 一次性
+bash b/scripts/hand2robot/setup.sh
+
+# 1) 标定（已有 r1_*_egodex_v1.yaml 可跳过）
+DATASET=/mnt/r/DATA/EgoDex/test_lerobot SIDE=right EPISODE=2 \
+  bash b/scripts/hand2robot/calibrate.sh
+
+# 2) 处理一批（先小规模）
+DATASET=/mnt/r/DATA/EgoDex/test_lerobot SIDE=right MAX_VIDEOS=2 \
+  bash b/scripts/hand2robot/process.sh
+
+# 3) 可选：工程自检
+bash b/scripts/hand2robot/check.sh
 ```
 
-### 2. Galaxea 运动学验收（真机关节）
+双臂：
 
 ```bash
-bash b/scripts/hand2robot/03_calibrate_galaxea.sh
-# 或
-LEROBOT_ROOT=/mnt/r/DATA/pre_train_v1/Galaxea_R1_Lite/Handle_Plates_20250619_001 \
-EPISODE=2 SIDE=right \
-  bash b/scripts/hand2robot/03_calibrate_galaxea.sh
+DATASET=/mnt/r/DATA/EgoDex/test_lerobot SIDE=both MAX_VIDEOS=2 \
+  CALIBRATION_PATH=b/d/hand2robot/calibration/r1_both_egodex_v1.yaml \
+  bash b/scripts/hand2robot/process.sh
 ```
 
-### 3. Ego / EgoDex 人手标定（生产前必做）
+## `process.sh` 输入
 
-**EgoDex LeRobot（推荐，已有真人手 + 相机）**：
+`DATASET` 可以是：
 
-```bash
-bash b/scripts/hand2robot/04_calibrate_egodex.sh
-# 或
-EGODEX_ROOT=/mnt/r/DATA/EgoDex/test_lerobot EPISODE=2 SIDE=right \
-  bash b/scripts/hand2robot/04_calibrate_egodex.sh
-```
+- EgoDex LeRobot 根目录（自动从 `videos/observation.images.ego` 收 mp4 → jsonl）
+- 普通视频目录 / 单个 mp4
+- 已有 jsonl（每行 `{"videos":["..."], "text":"", ...}`）
 
-P1 退出条件（写入报告 `p1_human_hand`）：
-
-- 帧数 ≥ 100
-- IK 成功率 ≥ 90%
-- 重投影中位误差 &lt; 15 px
-
-产出：`b/d/hand2robot/calibration/r1_right_egodex_v1.yaml`
-
-**自有 ego pipeline sample**（含 `hand_action_tags` + `cam_c2w`）：
-
-```bash
-DATA_PATH=/path/to/pipeline_sample.pkl \
-SIDE=right VERSION=v2 \
-  bash b/scripts/hand2robot/04_calibrate_ego.sh
-```
-
-### 4. P2 深度遮挡验收
-
-```bash
-bash b/scripts/hand2robot/05_accept_depth.sh
-```
-
-要求 `enable_depth_occlusion: true`，场景 depth 来自 MoGe（`camera_calibration_moge_tags.depth`）。
-无效 depth 占比（机器人 mask 内）≥20% 时该帧降级为仅 inpaint，并标记 `depth_invalid`。
-
-### 5. P3 Pipeline 与 VLA A/B 准备
-
-```bash
-# 合成链路验收（Render → Caption stub → LeRobot export）
-bash b/scripts/hand2robot/05_accept_p3.sh
-
-# 生成三路对比 manifest（不跑训练）
-bash b/scripts/hand2robot/08_build_vla_ab_manifest.sh
-```
-
-生产 Caption 可替换为 `demos/ego_hand_action_annotation` 中的 `VideoActionCaptioningMapper`，
-`frame_field` 保持 `robot_render_frames`。
-
-### 6. Ego → 机器人数据
-
-先改 `configs/ego_to_robot_recipe.yaml` 里的模型权重 / MANO 路径，或用环境变量覆盖：
-
-```bash
-# 确保资产与标定已就绪
-bash b/scripts/hand2robot/01_build_assets.sh
-
-DATASET_PATH=./demos/ego_hand_action_annotation/data/demo-dataset.jsonl \
-CALIBRATION_PATH=b/d/hand2robot/calibration/r1_right_v2.yaml \
-SIDE=right \
-  bash b/scripts/hand2robot/07_process_ego_to_robot.sh
-```
-
-运行时会生成 `b/d/hand2robot/runs/ego_process/ego_to_robot_runtime.yaml` 再调用 `dj-process`。
-
-> MegaSaM / 大规模建议把 recipe 里 `executor_type` 改为 `ray`，并配置 `runtime_env: {conda: mega-sam}`（参考 `demos/ego_hand_action_annotation`）。
-
-## 常用环境变量
+常用变量：
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
-| `SIDE` | `right` | `left` / `right` |
+| `DATASET` | （必填） | 输入数据 |
+| `SIDE` | `right` | `left` / `right` / `both` |
+| `CALIBRATION_PATH` | `calibration/r1_${SIDE}_egodex_v1.yaml` | 标定 YAML |
+| `MAX_VIDEOS` | 全部 | 只处理前 N 条视频 |
+| `OFFSET` | 0 | 跳过前 N 条 |
+| `RUN_DIR` | `runs/process_${SIDE}_时间戳` | 本次输出目录 |
+| `SKIP_FINALIZE` | 0 | 设为 1 则只写 staging |
+| `BUILD_VLA_MANIFEST` | 0 | 设为 1 额外写 VLA A/B manifest |
 | `MUJOCO_GL` | `egl` | MuJoCo 后端 |
-| `OUT_ROOT` | `b/d/hand2robot/runs` | 输出根目录 |
-| `INIT_CALIB` | `calibration/r1_${SIDE}_v1.yaml` | 标定初值 |
-| `MODEL_XML` | `urdf/generated/r1_lite_arm_${SIDE}.xml` | 单臂 MJCF |
-| `LEROBOT_ROOT` | Galaxea Handle_Plates… | `03` 用 |
-| `DATA_PATH` | （必填） | `04` ego sample |
-| `CALIBRATION_PATH` | （可选） | `07` 覆盖 recipe 标定 |
-| `DATASET_PATH` | （可选） | `07` 覆盖输入 jsonl |
-| `DJ_VENV` | — | 无 conda 时的 venv |
+
+产物（在 `RUN_DIR/`）：
+
+- `input_dataset.jsonl` — 本次实际喂给 pipeline 的样本
+- `frames/` / `robot_frames/` — 原帧 / 机器人合成帧
+- `lerobot_dataset/` — 最终 LeRobot（finalize 后有 `meta/info.json`）
+
+单臂导出 state **8** / action **7**；`SIDE=both` 为 state **16** / action **14**（right\|\|left）。
+
+## `calibrate.sh` 模式
+
+| `SOURCE` | 说明 |
+|----------|------|
+| `egodex`（默认） | `DATASET` / `EGODEX_ROOT` 指向 EgoDex LeRobot |
+| `ego` | 已有 pipeline sample：`DATA_PATH=...pkl` |
+| `galaxea` | 真机 FK/IK 代理标定 |
+| `synthetic` | 无数据 smoke |
+
+## `check.sh`
+
+```bash
+bash b/scripts/hand2robot/check.sh        # p3 + p4
+bash b/scripts/hand2robot/check.sh all
+bash b/scripts/hand2robot/check.sh depth
+bash b/scripts/hand2robot/check.sh smoke
+```
 
 ## 注意
 
-1. **Galaxea ≠ 人手标定**：`03` 只验证 FK/IK；人手 retarget 必须用 `04`。  
-2. **单臂**：P0–P1 的 `hand_type` / `SIDE` 不要用 `both`。  
-3. **非破坏输出**：渲染写在 `robot_render_frames`，原帧保留。  
-4. Export 的 `robot_type` 使用 `r1_lite_ego_retarget`，勿再写 `egodex_hand`。
+1. 全链路仍走 recipe：抽帧 → MoGe → HaWoR → MegaSaM → action → smooth → render → caption(stub) → export。需相应权重与环境。
+2. EgoDex 的 300-D 手势真值目前用于**标定**；`process.sh` 从视频重新重建手，不直接读 parquet state。
+3. 生产 caption 请把 recipe 里的 stub 换成真实 VLM caption mapper。
+4. 低层脚本在 `internal/`，一般无需直接调用。

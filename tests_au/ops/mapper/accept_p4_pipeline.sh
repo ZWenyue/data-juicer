@@ -10,14 +10,12 @@ else
   export MUJOCO_GL="${MUJOCO_GL:-egl}"
 fi
 
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/b/d/hand2robot/runs/accept_p3}"
-SIDE="${SIDE:-right}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/b/d/hand2robot/runs/accept_p4}"
 mkdir -p "$OUT_DIR"
 
-echo "=== accept_p3_pipeline → $OUT_DIR side=$SIDE"
-python "$SCRIPT_DIR/accept_p3_pipeline.py" \
+echo "=== accept_p4_pipeline → $OUT_DIR (hand_type=both, state16/action14)"
+python "$SCRIPT_DIR/accept_p4_pipeline.py" \
   --output-dir "$OUT_DIR" \
-  --side "$SIDE" \
   --gl-backend "$MUJOCO_GL"
 
-echo "Report: $OUT_DIR/accept_p3_pipeline_report.json"
+echo "Report: $OUT_DIR/accept_p4_pipeline_report.json"

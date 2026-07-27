@@ -31,8 +31,8 @@ class VideoHandActionCaptionStubMapper(Mapper):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        if hand_type not in ("left", "right"):
-            raise ValueError(f"hand_type must be left/right, got {hand_type}")
+        if hand_type not in ("left", "right", "both"):
+            raise ValueError(f"hand_type must be left/right/both, got {hand_type}")
         self.hand_type = hand_type
         self.frame_field = frame_field
         self.tag_field_name = tag_field_name
@@ -51,12 +51,23 @@ class VideoHandActionCaptionStubMapper(Mapper):
             clip = frame_data[0] if isinstance(frame_data[0], list) else frame_data
             n_frames = len(clip)
 
-        action = self.action_template.format(hand_type=self.hand_type)
-        meta[self.tag_field_name] = {
-            "think": f"stub caption for {self.hand_type} hand ({n_frames} robot-view frames).",
-            "action": action,
-            "source": "stub",
-            "num_frames": n_frames,
-        }
-        sample[self.text_key] = action
+        if self.hand_type == "both":
+            right_action = self.action_template.format(hand_type="right")
+            left_action = self.action_template.format(hand_type="left")
+            meta[self.tag_field_name] = {
+                "right": {"think": f"stub caption for right hand ({n_frames} robot-view frames).", "action": right_action},
+                "left": {"think": f"stub caption for left hand ({n_frames} robot-view frames).", "action": left_action},
+                "source": "stub",
+                "num_frames": n_frames,
+            }
+            sample[self.text_key] = f"right hand: {right_action}; left hand: {left_action}"
+        else:
+            action = self.action_template.format(hand_type=self.hand_type)
+            meta[self.tag_field_name] = {
+                "think": f"stub caption for {self.hand_type} hand ({n_frames} robot-view frames).",
+                "action": action,
+                "source": "stub",
+                "num_frames": n_frames,
+            }
+            sample[self.text_key] = action
         return sample

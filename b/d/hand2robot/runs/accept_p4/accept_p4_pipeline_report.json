@@ -1,0 +1,213 @@
+{
+  "decision": "go",
+  "checks": {
+    "merge_helper_16_14": true,
+    "per_side_present": true,
+    "caption_text_nonempty": true,
+    "action_invariant": true,
+    "original_frames_unchanged": true,
+    "lerobot_staged": true,
+    "export_marked_dual": true,
+    "export_dims_meta": true,
+    "video_encoded_from_frames": true,
+    "info_state_16": true,
+    "info_action_14": true,
+    "info_dual_flag": true,
+    "parquet_state_16": true,
+    "parquet_action_14": true,
+    "robot_outputs_written": true,
+    "robot_outputs_differ": true
+  },
+  "errors": [],
+  "stage": "P4_dual_arm",
+  "render_quality": {
+    "schema_version": 1,
+    "calibration_version": "r1_both_v1",
+    "action_frame": "world",
+    "render_frame": "camera",
+    "hand_side": "both",
+    "ik_success_rate": 0.0,
+    "workspace_projection_rate": 0.0,
+    "median_position_error_m": 0.7746437412626569,
+    "median_orientation_error_rad": 1.74707495938592,
+    "failed_frame_ids": [
+      0,
+      0,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      4,
+      4,
+      5,
+      5,
+      6,
+      6,
+      7,
+      7
+    ],
+    "num_frames": 16,
+    "enable_depth_occlusion": true,
+    "median_depth_invalid_ratio": NaN,
+    "depth_invalid_frame_ids": [],
+    "depth_occlusion_frame_rate": 0.0,
+    "per_side": {
+      "left": {
+        "schema_version": 1,
+        "calibration_version": "r1_both_v1",
+        "action_frame": "world",
+        "render_frame": "camera",
+        "hand_side": "left",
+        "ik_success_rate": 0.0,
+        "workspace_projection_rate": 0.0,
+        "median_position_error_m": 0.7746436117183519,
+        "median_orientation_error_rad": 1.7470747728846379,
+        "failed_frame_ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "num_frames": 8,
+        "enable_depth_occlusion": true,
+        "median_depth_invalid_ratio": NaN,
+        "depth_invalid_frame_ids": [],
+        "depth_occlusion_frame_rate": 0.0
+      },
+      "right": {
+        "schema_version": 1,
+        "calibration_version": "r1_both_v1",
+        "action_frame": "world",
+        "render_frame": "camera",
+        "hand_side": "right",
+        "ik_success_rate": 0.0,
+        "workspace_projection_rate": 0.0,
+        "median_position_error_m": 0.7746437962054495,
+        "median_orientation_error_rad": 1.7470751427343867,
+        "failed_frame_ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "num_frames": 8,
+        "enable_depth_occlusion": true,
+        "median_depth_invalid_ratio": NaN,
+        "depth_invalid_frame_ids": [],
+        "depth_occlusion_frame_rate": 0.0
+      }
+    },
+    "num_quality_records": 16,
+    "ok_frame_rate": 0.0
+  },
+  "action_invariance": {
+    "ok": true,
+    "max_abs_diff": 0.0,
+    "issues": []
+  },
+  "lerobot_info": {
+    "codebase_version": "v2.0",
+    "robot_type": "r1_lite_ego_retarget",
+    "total_episodes": 1,
+    "total_frames": 8,
+    "total_tasks": 1,
+    "total_videos": 1,
+    "total_chunks": 1,
+    "chunks_size": 1000,
+    "fps": 10,
+    "splits": {
+      "train": "0:1"
+    },
+    "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+    "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    "features": {
+      "observation.state": {
+        "dtype": "float32",
+        "shape": [
+          16
+        ]
+      },
+      "action": {
+        "dtype": "float32",
+        "shape": [
+          14
+        ]
+      },
+      "observation.images.image": {
+        "dtype": "video",
+        "shape": [
+          240,
+          320,
+          3
+        ],
+        "names": [
+          "height",
+          "width",
+          "channels"
+        ],
+        "info": {
+          "video.height": 240,
+          "video.width": 320,
+          "video.channels": 3,
+          "video.codec": "h264",
+          "video.pix_fmt": "yuv420p",
+          "video.is_depth_map": false,
+          "video.fps": 10,
+          "has_audio": false
+        }
+      },
+      "timestamp": {
+        "dtype": "float32",
+        "shape": [
+          1
+        ],
+        "names": null
+      },
+      "frame_index": {
+        "dtype": "int64",
+        "shape": [
+          1
+        ],
+        "names": null
+      },
+      "episode_index": {
+        "dtype": "int64",
+        "shape": [
+          1
+        ],
+        "names": null
+      },
+      "index": {
+        "dtype": "int64",
+        "shape": [
+          1
+        ],
+        "names": null
+      },
+      "task_index": {
+        "dtype": "int64",
+        "shape": [
+          1
+        ],
+        "names": null
+      }
+    },
+    "dual_arm": true,
+    "state_layout": "right(8)||left(8)",
+    "action_layout": "right(7)||left(7)"
+  },
+  "parquet_dims": {
+    "state": 16,
+    "action": 14
+  }
+}

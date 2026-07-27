@@ -197,6 +197,53 @@ def composite_with_depth(
     return alpha_blend(inpainted, fg, visible, edge_blur=edge_blur), meta
 
 
+def merge_render_layers(
+    rgbs: Sequence[np.ndarray],
+    masks: Sequence[np.ndarray],
+    depths: Optional[Sequence[Optional[np.ndarray]]] = None,
+) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
+    """Merge multiple robot renders into one foreground layer.
+
+    When depth is available, the nearest robot pixel wins at each location.
+    Otherwise later layers overwrite earlier ones inside their masks.
+    """
+    if not rgbs or not masks or len(rgbs) != len(masks):
+        raise ValueError("rgbs/masks must be non-empty and have the same length")
+
+    h, w = rgbs[0].shape[:2]
+    merged_rgb = np.zeros_like(rgbs[0])
+    merged_mask = np.zeros((h, w), dtype=bool)
+
+    use_depth = depths is not None and len(depths) == len(rgbs) and any(d is not None for d in depths)
+    merged_depth = np.full((h, w), np.inf, dtype=np.float32) if use_depth else None
+
+    for i, (rgb, mask) in enumerate(zip(rgbs, masks)):
+        if rgb.shape[:2] != (h, w):
+            raise ValueError("all rgbs must share the same resolution")
+        cur_mask = np.asarray(mask, dtype=bool)
+        if cur_mask.shape != (h, w):
+            cur_mask = cv2.resize(cur_mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+        if not np.any(cur_mask):
+            continue
+
+        if use_depth and depths is not None and depths[i] is not None:
+            cur_depth = resize_depth(np.asarray(depths[i], dtype=np.float32), h, w)
+            replace = cur_mask & np.isfinite(cur_depth) & (cur_depth > 0) & (cur_depth < merged_depth)
+            if np.any(replace):
+                merged_rgb[replace] = rgb[replace]
+                merged_depth[replace] = cur_depth[replace]
+                merged_mask[replace] = True
+            merged_mask |= cur_mask
+        else:
+            merged_rgb[cur_mask] = rgb[cur_mask]
+            merged_mask |= cur_mask
+
+    if merged_depth is not None:
+        finite = np.isfinite(merged_depth)
+        merged_depth[~finite] = 0.0
+    return merged_rgb, merged_mask, merged_depth
+
+
 def composite_robot_on_frame(
     video_frame: np.ndarray,
     robot_rgb: np.ndarray,

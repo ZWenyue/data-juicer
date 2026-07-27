@@ -4,7 +4,7 @@
 #   bash b/scripts/hand2robot/02_calibrate_synthetic.sh
 #   SIDE=left bash b/scripts/hand2robot/02_calibrate_synthetic.sh
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 REPORT_DIR="${REPORT_DIR:-$OUT_ROOT/calib_synthetic_${SIDE}}"
 OUTPUT_CALIB="${OUTPUT_CALIB:-$REPORT_DIR/r1_${SIDE}_calibrated.yaml}"
@@ -12,7 +12,7 @@ mkdir -p "$REPORT_DIR"
 
 [[ -f "$INIT_CALIB" ]] || { echo "missing init calib: $INIT_CALIB" >&2; exit 1; }
 [[ -f "$MODEL_XML" ]] || {
-  echo "missing model: $MODEL_XML — run 01_build_assets.sh first" >&2
+  echo "missing model: $MODEL_XML — run setup.sh first" >&2
   exit 1
 }
 

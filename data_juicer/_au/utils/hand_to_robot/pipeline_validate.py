@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -25,26 +25,33 @@ def _deep_json(obj: Any) -> Any:
     return obj
 
 
-def snapshot_hand_actions(
-    sample: dict,
-    hand_action_field: str = "hand_action_tags",
-) -> dict:
-    """Deep-copy hand action subtree for before/after comparison."""
+def snapshot_hand_actions(sample: dict, hand_action_field: str = "hand_action_tags") -> dict:
     meta = sample.get(Fields.meta, {}) or {}
     return _deep_json(copy.deepcopy(meta.get(hand_action_field, [])))
 
 
-def compare_action_invariance(
-    before: Any,
-    after: Any,
-    atol: float = 1e-9,
-) -> Tuple[bool, dict]:
-    """Return (ok, report) — states/actions must match after render/caption/export."""
+def _collect_states(hand_action_list: Any) -> List[List[float]]:
+    out: List[List[float]] = []
+    if not isinstance(hand_action_list, list):
+        return out
+    for clip in hand_action_list:
+        if not isinstance(clip, dict):
+            continue
+        if "states" in clip:
+            for s in clip.get("states", []) or []:
+                out.append(list(s))
+            continue
+        for ht in ("right", "left"):
+            hand = clip.get(ht, {}) or {}
+            for s in hand.get("states", []) or []:
+                out.append(list(s))
+    return out
+
+
+def compare_action_invariance(before: Any, after: Any, atol: float = 1e-9) -> Tuple[bool, dict]:
     report: dict = {"ok": True, "max_abs_diff": 0.0, "issues": []}
     if before == after:
         return True, report
-
-    # Numeric compare when structure matches
     try:
         b_states, a_states = _collect_states(before), _collect_states(after)
         if len(b_states) != len(a_states):
@@ -70,28 +77,7 @@ def compare_action_invariance(
         return False, report
 
 
-def _collect_states(hand_action_list: Any) -> List[List[float]]:
-    out: List[List[float]] = []
-    if not isinstance(hand_action_list, list):
-        return out
-    for clip in hand_action_list:
-        if not isinstance(clip, dict):
-            continue
-        if "states" in clip:
-            for s in clip.get("states", []) or []:
-                out.append(list(s))
-            continue
-        for ht in ("right", "left"):
-            hand = clip.get(ht, {}) or {}
-            for s in hand.get("states", []) or []:
-                out.append(list(s))
-    return out
-
-
-def summarize_render_quality(
-    sample: dict,
-    quality_field: str = "hand_to_robot_render_quality",
-) -> dict:
+def summarize_render_quality(sample: dict, quality_field: str = "hand_to_robot_render_quality") -> dict:
     meta = sample.get(Fields.meta, {}) or {}
     q = meta.get(quality_field, {}) or {}
     summary = dict(q.get("summary", {}) or {})

@@ -13,14 +13,21 @@
 #   CONFIG=b/scripts/hand2robot/configs/ego_to_robot_recipe.yaml \
 #     bash b/scripts/hand2robot/07_process_ego_to_robot.sh --help
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_env.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../_env.sh"
 
 CONFIG="${CONFIG:-$H2R_SCRIPT_DIR/configs/ego_to_robot_recipe.yaml}"
 [[ -f "$CONFIG" ]] || { echo "missing config: $CONFIG" >&2; exit 1; }
-[[ -f "$MODEL_XML" ]] || {
-  echo "missing model: $MODEL_XML — run 01_build_assets.sh first" >&2
-  exit 1
-}
+if [[ "${SIDE}" == "both" ]]; then
+  MODEL_XML_RIGHT="${MODEL_XML_RIGHT:-$MODEL_DIR/r1_lite_arm_right.xml}"
+  MODEL_XML_LEFT="${MODEL_XML_LEFT:-$MODEL_DIR/r1_lite_arm_left.xml}"
+  [[ -f "$MODEL_XML_RIGHT" ]] || { echo "missing model: $MODEL_XML_RIGHT" >&2; exit 1; }
+  [[ -f "$MODEL_XML_LEFT" ]] || { echo "missing model: $MODEL_XML_LEFT" >&2; exit 1; }
+else
+  [[ -f "$MODEL_XML" ]] || {
+    echo "missing model: $MODEL_XML — run setup.sh first" >&2
+    exit 1
+  }
+fi
 
 # Optional: materialize a run-specific config with path overrides.
 RUN_DIR="${RUN_DIR:-$OUT_ROOT/ego_process}"
@@ -39,6 +46,8 @@ calib = "${CALIBRATION_PATH:-}"
 export_path = "${EXPORT_PATH:-}"
 side = "${SIDE}"
 model_xml = "${MODEL_XML}"
+model_xml_right = "${MODEL_XML_RIGHT:-}"
+model_xml_left = "${MODEL_XML_LEFT:-}"
 run_dir = Path("$RUN_DIR")
 
 if dataset:
@@ -62,7 +71,10 @@ for item in process:
         kwargs["hand_type"] = side
     elif name == "video_hand_to_robot_render_mapper":
         kwargs["hand_type"] = side
-        kwargs["robot_model_paths"] = {side: model_xml}
+        if side == "both":
+            kwargs["robot_model_paths"] = {"right": model_xml_right, "left": model_xml_left}
+        else:
+            kwargs["robot_model_paths"] = {side: model_xml}
         if calib:
             kwargs["calibration_path"] = calib
         kwargs["output_root"] = str(run_dir / "robot_frames")
