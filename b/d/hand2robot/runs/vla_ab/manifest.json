@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "stage": "P3_vla_ab",
+  "dataset_path": "/mnt/r/share/zwy/Projects/data-juicer/demos/ego_hand_action_annotation/data/demo-dataset.jsonl",
+  "run_root": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab",
+  "side": "right",
+  "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml",
+  "arms": [
+    {
+      "id": "baseline_human",
+      "description": "Original ego human-hand frames; world-frame actions.",
+      "frame_field": "video_frames",
+      "enable_depth_occlusion": false,
+      "export_robot_type": "egodex_hand",
+      "caption_frame_field": "video_frames",
+      "dataset_path": "/mnt/r/share/zwy/Projects/data-juicer/demos/ego_hand_action_annotation/data/demo-dataset.jsonl",
+      "run_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/baseline_human",
+      "lerobot_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/baseline_human/lerobot_dataset",
+      "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml",
+      "side": "right",
+      "process_hints": {
+        "video_hand_to_robot_render_mapper": {
+          "enable_depth_occlusion": false,
+          "output_frame_field": "robot_render_frames",
+          "hand_type": "right",
+          "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml"
+        },
+        "video_hand_action_caption_stub_mapper": {
+          "frame_field": "video_frames",
+          "hand_type": "right"
+        },
+        "export_robot_render_lerobot_mapper": {
+          "frame_field": "video_frames",
+          "robot_type": "egodex_hand",
+          "encode_video_from_frames": false
+        }
+      },
+      "metrics_to_report": [
+        "action_prediction_error",
+        "task_success_rate",
+        "cross_scene_generalization"
+      ]
+    },
+    {
+      "id": "arm_no_depth",
+      "description": "Robot render without depth-aware occlusion.",
+      "frame_field": "robot_render_frames",
+      "enable_depth_occlusion": false,
+      "export_robot_type": "r1_lite_ego_retarget",
+      "caption_frame_field": "robot_render_frames",
+      "dataset_path": "/mnt/r/share/zwy/Projects/data-juicer/demos/ego_hand_action_annotation/data/demo-dataset.jsonl",
+      "run_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/arm_no_depth",
+      "lerobot_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/arm_no_depth/lerobot_dataset",
+      "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml",
+      "side": "right",
+      "process_hints": {
+        "video_hand_to_robot_render_mapper": {
+          "enable_depth_occlusion": false,
+          "output_frame_field": "robot_render_frames",
+          "hand_type": "right",
+          "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml"
+        },
+        "video_hand_action_caption_stub_mapper": {
+          "frame_field": "robot_render_frames",
+          "hand_type": "right"
+        },
+        "export_robot_render_lerobot_mapper": {
+          "frame_field": "robot_render_frames",
+          "robot_type": "r1_lite_ego_retarget",
+          "encode_video_from_frames": true
+        }
+      },
+      "metrics_to_report": [
+        "action_prediction_error",
+        "task_success_rate",
+        "cross_scene_generalization"
+      ]
+    },
+    {
+      "id": "arm_depth",
+      "description": "Full robot render with P2 depth occlusion.",
+      "frame_field": "robot_render_frames",
+      "enable_depth_occlusion": true,
+      "export_robot_type": "r1_lite_ego_retarget",
+      "caption_frame_field": "robot_render_frames",
+      "dataset_path": "/mnt/r/share/zwy/Projects/data-juicer/demos/ego_hand_action_annotation/data/demo-dataset.jsonl",
+      "run_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/arm_depth",
+      "lerobot_dir": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/runs/vla_ab/arm_depth/lerobot_dataset",
+      "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml",
+      "side": "right",
+      "process_hints": {
+        "video_hand_to_robot_render_mapper": {
+          "enable_depth_occlusion": true,
+          "output_frame_field": "robot_render_frames",
+          "hand_type": "right",
+          "calibration_path": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v1.yaml"
+        },
+        "video_hand_action_caption_stub_mapper": {
+          "frame_field": "robot_render_frames",
+          "hand_type": "right"
+        },
+        "export_robot_render_lerobot_mapper": {
+          "frame_field": "robot_render_frames",
+          "robot_type": "r1_lite_ego_retarget",
+          "encode_video_from_frames": true
+        }
+      },
+      "metrics_to_report": [
+        "action_prediction_error",
+        "task_success_rate",
+        "cross_scene_generalization"
+      ]
+    }
+  ],
+  "notes": "Train each arm with identical action labels (world-frame hand_action_tags). Compare hold-out metrics per design \u00a78.5; arm_depth must not regress vs baseline."
+}

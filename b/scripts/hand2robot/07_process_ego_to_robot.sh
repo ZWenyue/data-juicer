@@ -67,6 +67,14 @@ for item in process:
             kwargs["calibration_path"] = calib
         kwargs["output_root"] = str(run_dir / "robot_frames")
         kwargs["gl_backend"] = "${MUJOCO_GL}"
+    elif name == "video_hand_action_caption_stub_mapper":
+        kwargs["hand_type"] = side
+        kwargs["frame_field"] = "robot_render_frames"
+    elif name == "export_robot_render_lerobot_mapper":
+        kwargs["output_dir"] = str(run_dir / "lerobot_dataset")
+        kwargs["frame_field"] = "robot_render_frames"
+        kwargs["encode_video_from_frames"] = True
+        kwargs["robot_type"] = kwargs.get("robot_type") or "r1_lite_ego_retarget"
     elif name == "export_to_lerobot_mapper":
         kwargs["output_dir"] = str(run_dir / "lerobot_dataset")
         kwargs["frame_field"] = "robot_render_frames"

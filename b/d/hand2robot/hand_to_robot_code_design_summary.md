@@ -2,7 +2,7 @@
 
 > **范围**：`data_juicer/_au` 中「人手腕位姿 → R1 Lite 末端 → MuJoCo 渲染合成」的实现与标定工具链  
 > **对应总设计**：[`hand_to_robot_render_design.md`](./hand_to_robot_render_design.md)  
-> **状态**：P0 资产 + P1 单臂原型与离线标定已落地；深度遮挡 / mink IK / 双臂 / VLA A/B 仍为后续里程碑  
+> **状态**：P0–P3 单臂原型已落地（含 depth 遮挡与 Pipeline→Export）；双臂 / 全量 VLA 训练验证仍为后续里程碑  
 > **日期**：2026-07-24
 
 ---

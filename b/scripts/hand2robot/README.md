@@ -20,8 +20,10 @@
 | `05_accept_render.sh` | 渲染 Mapper 验收 |
 | `05_accept_calibrate.sh` | 标定工具验收 |
 | `05_accept_depth.sh` | **P2** depth-aware 遮挡验收 |
+| `05_accept_p3.sh` | **P3** Render→Caption→Export + action 不变性 |
 | `06_run_smoke.sh` | 本地一键 smoke（build→合成标定→双验收） |
 | `07_process_ego_to_robot.sh` | 按 recipe 跑 ego→机器人画面 LeRobot |
+| `08_build_vla_ab_manifest.sh` | 生成 VLA A/B 实验 manifest（baseline / no-depth / depth） |
 | `configs/ego_to_robot_recipe.yaml` | 处理配方模板 |
 
 默认产物目录：`b/d/hand2robot/runs/`。
@@ -89,7 +91,20 @@ bash b/scripts/hand2robot/05_accept_depth.sh
 要求 `enable_depth_occlusion: true`，场景 depth 来自 MoGe（`camera_calibration_moge_tags.depth`）。
 无效 depth 占比（机器人 mask 内）≥20% 时该帧降级为仅 inpaint，并标记 `depth_invalid`。
 
-### 5. Ego → 机器人数据
+### 5. P3 Pipeline 与 VLA A/B 准备
+
+```bash
+# 合成链路验收（Render → Caption stub → LeRobot export）
+bash b/scripts/hand2robot/05_accept_p3.sh
+
+# 生成三路对比 manifest（不跑训练）
+bash b/scripts/hand2robot/08_build_vla_ab_manifest.sh
+```
+
+生产 Caption 可替换为 `demos/ego_hand_action_annotation` 中的 `VideoActionCaptioningMapper`，
+`frame_field` 保持 `robot_render_frames`。
+
+### 6. Ego → 机器人数据
 
 先改 `configs/ego_to_robot_recipe.yaml` 里的模型权重 / MANO 路径，或用环境变量覆盖：
 

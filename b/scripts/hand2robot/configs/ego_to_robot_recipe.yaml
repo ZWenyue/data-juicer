@@ -70,7 +70,7 @@ process:
   - video_hand_to_robot_render_mapper:
       robot_model_paths:
         right: 'b/d/urdf/generated/r1_lite_arm_right.xml'
-      calibration_path: 'b/d/hand2robot/calibration/r1_right_v1.yaml'
+      calibration_path: 'b/d/hand2robot/calibration/r1_right_egodex_v1.yaml'
       hand_type: 'right'
       ik_solver: 'jacobian'
       hand_mask_method: 'joints_bbox_union'
@@ -83,10 +83,18 @@ process:
       gl_backend: 'egl'
       batch_mode: true
 
-  - export_to_lerobot_mapper:
+  # P3: caption robot-view frames (stub for smoke; swap to VideoActionCaptioningMapper + VLM in prod)
+  - video_hand_action_caption_stub_mapper:
+      hand_type: 'right'
+      frame_field: 'robot_render_frames'
+      tag_field_name: 'hand_action_caption'
+      batch_mode: true
+
+  - export_robot_render_lerobot_mapper:
       output_dir: './b/d/hand2robot/runs/ego_process/lerobot_dataset'
       hand_action_field: 'hand_action_tags'
       frame_field: 'robot_render_frames'
+      encode_video_from_frames: true
       fps: 10
       robot_type: 'r1_lite_ego_retarget'
       batch_mode: true
