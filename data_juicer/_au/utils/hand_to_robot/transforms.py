@@ -52,9 +52,12 @@ def compute_mujoco_fovy(fov_x_rad: float, img_width: int, img_height: int) -> fl
 
 
 def opencv_to_mujoco_camera_T() -> np.ndarray:
-    """Fixed adapter: OpenCV cam (+Z forward, +Y down) → MuJoCo cam (−Z look).
+    """Adapter from the OpenCV camera frame to the arm MJCF's world frame.
 
-    Equivalent to 180° rotation about X: (x,y,z)_cv → (x,−y,−z)_mj.
+    Identity, because the generated arms declare ``<camera name="ego_cam" pos="0 0 0"
+    xyaxes="1 0 0 0 -1 0">``. That camera already looks toward world +Z with world +Y
+    pointing down, i.e. MJCF world axes coincide with OpenCV camera axes. Applying the
+    usual 180°-about-X flip on top would double-flip and push the arm behind the
+    camera, where it renders an empty mask.
     """
-    R = np.array([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]], dtype=np.float64)
-    return se3(R, [0.0, 0.0, 0.0])
+    return se3(np.eye(3), [0.0, 0.0, 0.0])

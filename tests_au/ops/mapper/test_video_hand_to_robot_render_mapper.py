@@ -64,11 +64,12 @@ class TestHandToRobotHelpers(unittest.TestCase):
         I = T @ Ti
         np.testing.assert_allclose(I, np.eye(4), atol=1e-9)
 
+        # ego_cam's xyaxes already align MJCF world with the OpenCV camera frame, so
+        # forward must stay +Z; flipping here renders the arm behind the camera.
         adapter = opencv_to_mujoco_camera_T()
-        # OpenCV +Z forward should map to MuJoCo -Z.
         z_cv = np.array([0.0, 0.0, 1.0, 0.0])
         z_mj = adapter @ z_cv
-        np.testing.assert_allclose(z_mj[:3], [0.0, 0.0, -1.0], atol=1e-9)
+        np.testing.assert_allclose(z_mj[:3], [0.0, 0.0, 1.0], atol=1e-9)
 
     def test_state_to_T(self):
         T = state_to_T([1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0])

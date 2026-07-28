@@ -2481,7 +2481,10 @@ class HAWOR(pl.LightningModule):
 
         return output
 
-    def inference(self, imgfiles, boxes, img_focal, img_center, device="cuda", do_flip=False):
+    def inference(self, imgfiles, boxes, img_focal, img_center, device=None, do_flip=False):
+        # Keep inputs on the same device as model weights (multi-GPU rank may be cuda:N).
+        if device is None:
+            device = next(self.parameters()).device
         db = TrackDatasetEval(
             imgfiles, boxes, img_focal=img_focal, img_center=img_center, normalization=True, dilate=1.2, do_flip=do_flip
         )

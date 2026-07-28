@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from itertools import permutations, product
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -20,12 +21,21 @@ from scipy.spatial.transform import Rotation
 from .calibration import (
     HandToRobotCalibration,
     SideCalibration,
+    WorkspaceMap,
     load_calibration,
     replace_side,
     save_calibration,
     side_to_dict,
 )
-from .retarget import palm_pixel_from_joints, project_point_cam, retarget_wrist_to_ee, world_to_camera
+from .retarget import (
+    JAW_SYMMETRY,
+    grasp_orientation_error,
+    hand_grasp_frame,
+    palm_pixel_from_joints,
+    project_point_cam,
+    retarget_wrist_to_ee,
+    world_to_camera,
+)
 from .transforms import invert_T, mat_to_quat_wxyz, quat_wxyz_to_mat, se3, state_to_T
 
 
@@ -55,6 +65,11 @@ def _jacobian_ik_multistart(
         if not any(np.allclose(cand, s) for s in seeds):
             seeds.append(np.asarray(cand, dtype=np.float64).reshape(-1))
 
+    def _rank(m):
+        # Trade 1 rad of orientation slack against tol_rot/tol_pos metres of position,
+        # so a seed is not preferred purely for closing the positional gap.
+        return float(m["position_error_m"]) + (tol_pos / tol_rot) * float(m["orientation_error_rad"])
+
     best = None
     for q0 in seeds:
         q, ok, metrics = jacobian_ik(
@@ -71,7 +86,7 @@ def _jacobian_ik_multistart(
         )
         if ok:
             return q, True, metrics
-        if best is None or float(metrics["position_error_m"]) < float(best[2]["position_error_m"]):
+        if best is None or _rank(metrics) < _rank(best[2]):
             best = (q, False, metrics)
     return best
 
@@ -103,9 +118,19 @@ class CalibClip:
 @dataclass
 class CalibWeights:
     w_pos: float = 1.0
-    w_rot: float = 0.25
+    # Prior pulling retarget_R toward identity, NOT a data residual: the camera-frame
+    # rotation delta it scores is a similarity transform of retarget_R, so its angle
+    # equals |rotvec(retarget_R)| regardless of the clip. Keep at 0 unless you really
+    # want to bias against reorienting the gripper.
+    w_rot: float = 0.0
     w_uv: float = 2e-4  # px^2 scaled; ~1.0 when err~70px
     w_ik: float = 1.0
+    # Whether the arm can *reach* the commanded orientation; needs an MJCF model (w_ik>0).
+    w_ik_rot: float = 1.0
+    # Whether the commanded orientation is the *right* one, i.e. the gripper is held like
+    # the hand. Without it nothing pins retarget_R to anatomy and w_ik_rot happily settles
+    # on whatever pose the arm reaches most comfortably. Needs MANO-21 joints_cam.
+    w_grasp: float = 1.0
     w_scale_reg: float = 0.05
     w_base_reg: float = 0.1
 
@@ -119,6 +144,8 @@ class CalibResult:
     success: bool
     message: str = ""
     x_opt: Optional[np.ndarray] = None
+    seed_search: Optional[dict] = None
+    workspace_fit: Optional[dict] = None
 
 
 def _orthonormalize(R: np.ndarray) -> np.ndarray:
@@ -128,6 +155,182 @@ def _orthonormalize(R: np.ndarray) -> np.ndarray:
         U[:, -1] *= -1
         Rn = U @ Vt
     return Rn
+
+
+def sample_reachable_workspace(
+    model_path: str,
+    n_samples: int = 4000,
+    gl_backend: str = "egl",
+    seed: int = 0,
+) -> np.ndarray:
+    """FK-sample the arm site over its joint limits; returns (N,3) in the base frame."""
+    import mujoco
+
+    from .renderer import RobotArmRenderer
+
+    renderer = RobotArmRenderer(model_path, width=64, height=64, gl_backend=gl_backend)
+    try:
+        model, data = renderer.model, renderer.data
+        addrs = renderer.arm_qpos_addrs
+        limits = []
+        for a in addrs:
+            jid = int(np.where(model.jnt_qposadr == a)[0][0])
+            lo, hi = model.jnt_range[jid]
+            limits.append((float(lo), float(hi)) if hi > lo else (0.0, 0.0))
+        rng = np.random.default_rng(seed)
+        pts = np.empty((n_samples, 3), dtype=np.float64)
+        for i in range(n_samples):
+            data.qpos[addrs] = [rng.uniform(lo, hi) for lo, hi in limits]
+            mujoco.mj_forward(model, data)
+            pts[i] = data.site_xpos[renderer.site_id] - data.mocap_pos[renderer.anchor_mocap_id]
+        return pts
+    finally:
+        renderer.close()
+
+
+def fit_workspace_map(
+    clip: CalibClip,
+    side_cal: SideCalibration,
+    model_path: str,
+    coverage: float = 0.9,
+    gl_backend: str = "egl",
+    n_samples: int = 4000,
+) -> Tuple[WorkspaceMap, dict]:
+    """Fit the base-frame similarity map taking the clip's hand motion into the arm shell."""
+    robot_pts = sample_reachable_workspace(model_path, n_samples=n_samples, gl_backend=gl_backend)
+    center_robot = np.median(robot_pts, axis=0)
+    r_robot = float(np.percentile(np.linalg.norm(robot_pts - center_robot, axis=1), coverage * 100.0))
+
+    human_pts = []
+    for fr in clip.frames:
+        T_world_base = fr.T_world_camera @ side_cal.T_camera_base_ref
+        p_world = state_to_T(fr.state)[:3, 3]
+        human_pts.append((invert_T(T_world_base) @ np.append(p_world, 1.0))[:3])
+    human_pts = np.asarray(human_pts, dtype=np.float64)
+    center_human = np.median(human_pts, axis=0)
+    r_human = float(np.percentile(np.linalg.norm(human_pts - center_human, axis=1), coverage * 100.0))
+
+    # Isotropic: per-axis factors previously ran into their clip limits and produced
+    # skewed, degenerate maps. Never scale up — the arm gains nothing from it.
+    scale = 1.0 if r_human <= 1e-6 else min(1.0, r_robot / r_human)
+    ws = WorkspaceMap(
+        center_human_base=center_human,
+        center_robot_base=center_robot,
+        scale_xyz=np.full(3, scale, dtype=np.float64),
+    )
+    return ws, {
+        "robot_shell_radius_m": r_robot,
+        "human_spread_radius_m": r_human,
+        "scale": float(scale),
+        "coverage": float(coverage),
+        "center_robot_base": [float(v) for v in center_robot],
+        "center_human_base": [float(v) for v in center_human],
+    }
+
+
+def anchor_base_to_hand(
+    clip: CalibClip,
+    side_cal: SideCalibration,
+    model_path: str,
+    gl_backend: str = "egl",
+    n_samples: int = 4000,
+) -> Tuple[np.ndarray, dict]:
+    """Place the arm base so its reachable shell is centred on the observed hand.
+
+    Preferred over :func:`fit_workspace_map` for ego footage: the map keeps IK happy by
+    moving the *targets*, which drags the robot away from where the hand actually
+    worked. Here the *base* moves instead, so targets stay on the hand and still sit
+    near the middle of the arm's workspace. Returns the new ``T_camera_base_ref``.
+    """
+    robot_pts = sample_reachable_workspace(model_path, n_samples=n_samples, gl_backend=gl_backend)
+    center_robot = np.median(robot_pts, axis=0)
+
+    hand_cam = []
+    for fr in clip.frames:
+        p_world = state_to_T(fr.state)[:3, 3]
+        hand_cam.append((invert_T(fr.T_world_camera) @ np.append(p_world, 1.0))[:3])
+    hand_cam = np.asarray(hand_cam, dtype=np.float64)
+    center_hand_cam = np.median(hand_cam, axis=0)
+
+    R_cb = side_cal.T_camera_base_ref[:3, :3]
+    t_cb = center_hand_cam - R_cb @ center_robot
+    return se3(R_cb, t_cb), {
+        "center_hand_camera": [float(v) for v in center_hand_cam],
+        "center_robot_base": [float(v) for v in center_robot],
+        "camera_to_base_translation_m": [float(v) for v in t_cb],
+        "hand_spread_radius_m": float(np.percentile(np.linalg.norm(hand_cam - center_hand_cam, axis=1), 90.0)),
+        "robot_shell_radius_m": float(np.percentile(np.linalg.norm(robot_pts - center_robot, axis=1), 90.0)),
+    }
+
+
+def axis_convention_rotations() -> List[np.ndarray]:
+    """The 24 signed axis permutations with det=+1.
+
+    A MANO-wrist→gripper mismatch is a frame-convention swap, so the true
+    retarget_R sits near one of these. Identity is first so a tie keeps it.
+    """
+    mats = []
+    for perm in permutations(range(3)):
+        for signs in product((1.0, -1.0), repeat=3):
+            R = np.zeros((3, 3), dtype=np.float64)
+            for row, col in enumerate(perm):
+                R[row, col] = signs[row]
+            if np.linalg.det(R) > 0:
+                mats.append(R)
+    mats.sort(key=lambda R: np.linalg.norm(R - np.eye(3)))
+    return mats
+
+
+def fit_retarget_R_from_grasp(clip: CalibClip) -> Optional[Tuple[np.ndarray, dict]]:
+    """Solve retarget_R in closed form from hand anatomy, bypassing any search.
+
+    ``retarget_wrist_to_ee`` defines ``R_ee = R_wrist @ retarget_R``, so retarget_R *is*
+    the constant wrist→gripper frame change. Every frame with MANO joints observes it
+    directly as ``R_wrist.T @ R_grasp``, and the fit is just a rotation average — no
+    reachability involved, which is the point: the arm must not get a vote on which way
+    the hand was facing.
+
+    Returns ``(retarget_R, info)``, or ``None`` if the clip carries no MANO-21 joints.
+    ``info["dispersion_deg_median"]`` is how rigidly the palm frame tracks the wrist and
+    therefore the best orientation accuracy any constant retarget_R can reach here.
+    """
+    candidates = []
+    for fr in clip.frames:
+        if fr.joints_cam is None:
+            continue
+        R_grasp_cam = hand_grasp_frame(fr.joints_cam)
+        if R_grasp_cam is None:
+            continue
+        R_grasp_world = np.asarray(fr.T_world_camera[:3, :3], dtype=np.float64) @ R_grasp_cam
+        R_wrist = state_to_T(fr.state)[:3, :3]
+        candidates.append(_orthonormalize(R_wrist.T @ R_grasp_world))
+    if not candidates:
+        return None
+
+    # Averaging is only meaningful once every sample sits on the same side of the jaw
+    # symmetry; re-align against the running mean so a bad first frame cannot bias it.
+    reference = candidates[0]
+    aligned = list(candidates)
+    for _ in range(2):
+        aligned = []
+        for R in candidates:
+            R_flipped = R @ JAW_SYMMETRY
+            aligned.append(R if np.trace(reference.T @ R) >= np.trace(reference.T @ R_flipped) else R_flipped)
+        reference = Rotation.from_matrix(np.stack(aligned)).mean().as_matrix()
+
+    R_fit = _orthonormalize(reference)
+    dispersion = [
+        float(np.degrees(np.linalg.norm(Rotation.from_matrix(_orthonormalize(R_fit.T @ R)).as_rotvec())))
+        for R in aligned
+    ]
+    info = {
+        "mode": "grasp_frame",
+        "n_frames": len(aligned),
+        "dispersion_deg_median": float(np.median(dispersion)),
+        "dispersion_deg_p90": float(np.percentile(dispersion, 90.0)),
+        "retarget_quaternion_wxyz": [float(v) for v in mat_to_quat_wxyz(R_fit)],
+    }
+    return R_fit, info
 
 
 def select_anchor_indices(frames: Sequence[CalibFrame], n_anchors: int) -> List[int]:
@@ -206,6 +409,7 @@ def _unpack_params(
         ee_ref_world=None if base_side.ee_ref_world is None else base_side.ee_ref_world.copy(),
         velocity_limits=None if base_side.velocity_limits is None else base_side.velocity_limits.copy(),
         model_sha256=base_side.model_sha256,
+        workspace_map=base_side.workspace_map,
     )
 
 
@@ -229,15 +433,17 @@ def evaluate_clip(
 
     pos_errs = []
     rot_errs = []
+    grasp_errs = []
     uv_errs = []
     ik_ok = []
     ik_pos = []
+    ik_rot = []
     q_prev = q_init if q_init is not None else side_cal.q_reference.copy()
 
     for fr in clip.frames:
-        T_world_ee = retarget_wrist_to_ee(fr.state, side_cal, wrist_ref, ee_ref)
         T_world_camera = fr.T_world_camera
         T_world_base = T_world_camera @ side_cal.T_camera_base_ref
+        T_world_ee = retarget_wrist_to_ee(fr.state, side_cal, wrist_ref, ee_ref, T_world_base=T_world_base)
         T_base_ee = invert_T(T_world_base) @ T_world_ee
         T_camera_ee = world_to_camera(T_world_ee, T_world_camera)
 
@@ -252,18 +458,21 @@ def evaluate_clip(
         else:
             pos_errs.append(0.0)
 
-        # Orientation: prefer retarget not flipping gripper wildly vs wrist.
+        # How far retarget_R tilts the gripper away from the raw wrist frame. This is
+        # a prior only (value is independent of the clip); the data-driven orientation
+        # signal is the IK residual below.
         T_camera_wrist = world_to_camera(state_to_T(fr.state), T_world_camera)
         R_err = T_camera_ee[:3, :3] @ T_camera_wrist[:3, :3].T
         rot_errs.append(float(np.linalg.norm(Rotation.from_matrix(_orthonormalize(R_err)).as_rotvec())))
 
         if fr.joints_cam is not None:
+            # Palm frame and T_camera_ee are both camera-frame, so they compare directly.
+            R_grasp = hand_grasp_frame(fr.joints_cam)
+            if R_grasp is not None:
+                grasp_errs.append(grasp_orientation_error(T_camera_ee[:3, :3], R_grasp))
+
             u_t, v_t, ok_t = palm_pixel_from_joints(fr.joints_cam, fr.fx, fr.fy, fr.cx, fr.cy)
-            p_ee_cam = np.asarray(T_camera_ee[:3, 3], dtype=np.float64).copy()
-            # When world is encoded with the OpenCV↔MuJoCo adapter (z flipped under
-            # identity cam_c2w), undo the flip so UV projection sees +Z OpenCV points.
-            if p_ee_cam[2] <= 1e-6:
-                p_ee_cam = np.array([p_ee_cam[0], -p_ee_cam[1], -p_ee_cam[2]], dtype=np.float64)
+            p_ee_cam = np.asarray(T_camera_ee[:3, 3], dtype=np.float64)
             u_p, v_p, ok_p = project_point_cam(p_ee_cam, fr.fx, fr.fy, fr.cx, fr.cy)
             if ok_t and ok_p:
                 uv_errs.append(float(np.hypot(u_p - u_t, v_p - v_t)))
@@ -288,6 +497,7 @@ def evaluate_clip(
             )
             ik_ok.append(bool(ok))
             ik_pos.append(float(metrics["position_error_m"]))
+            ik_rot.append(float(metrics["orientation_error_rad"]))
             if ok:
                 q_prev = q
                 # If IK ok, also measure FK site reprojection vs palm.
@@ -310,10 +520,12 @@ def evaluate_clip(
         "num_frames": len(clip.frames),
         "median_reach_violation_m": _med(pos_errs),
         "median_cam_rot_err_rad": _med(rot_errs),
+        "median_grasp_orientation_error_rad": _med(grasp_errs),
         "median_reprojection_error_px": _med(uv_errs),
         "mean_reprojection_error_px": float(np.mean(uv_errs)) if uv_errs else float("nan"),
         "ik_success_rate": float(np.mean(ik_ok)) if ik_ok else float("nan"),
         "median_ik_position_error_m": _med(ik_pos),
+        "median_ik_orientation_error_rad": _med(ik_rot),
         "loss": 0.0,
     }
     loss = 0.0
@@ -321,11 +533,15 @@ def evaluate_clip(
         loss += weights.w_pos * float(np.mean(np.square(pos_errs)))
     if rot_errs:
         loss += weights.w_rot * float(np.mean(np.square(rot_errs)))
+    if grasp_errs:
+        loss += weights.w_grasp * float(np.mean(np.square(grasp_errs)))
     if uv_errs:
         loss += weights.w_uv * float(np.mean(np.square(uv_errs)))
     if ik_pos:
         fail = 1.0 - float(np.mean(ik_ok))
         loss += weights.w_ik * (float(np.mean(np.square(ik_pos))) + 0.25 * fail)
+    if ik_rot:
+        loss += weights.w_ik_rot * float(np.mean(np.square(ik_rot)))
     loss += weights.w_scale_reg * float(np.sum((side_cal.workspace_scale_xyz - 1.0) ** 2))
     out["loss"] = float(loss)
     return out
@@ -340,6 +556,10 @@ def optimize_side_calibration(
     optimize_axis: bool = False,
     model_path: Optional[str] = None,
     maxiter: int = 80,
+    seed_retarget_conventions: bool = True,
+    fit_workspace: bool = False,
+    workspace_coverage: float = 0.9,
+    anchor_base: bool = False,
 ) -> CalibResult:
     """Fit side calibration on a clip; returns updated HandToRobotCalibration."""
     if clip.side not in init_cal.sides:
@@ -363,6 +583,7 @@ def optimize_side_calibration(
         ee_ref_world=np.asarray(ee_ref, dtype=np.float64),
         velocity_limits=base_side.velocity_limits,
         model_sha256=base_side.model_sha256,
+        workspace_map=base_side.workspace_map,
     )
     clip = CalibClip(
         side=clip.side,
@@ -388,6 +609,22 @@ def optimize_side_calibration(
         # Use first frame size for renderer.
         fr0 = clip.frames[0]
         renderer = RobotArmRenderer(model_path, width=fr0.img_w, height=fr0.img_h)
+
+    workspace_fit = None
+    if anchor_base:
+        if not model_path:
+            raise ValueError("anchor_base needs model_path to sample the reachable shell")
+        T_cam_base, workspace_fit = anchor_base_to_hand(clip, base_side, model_path)
+        base_side.T_camera_base_ref = T_cam_base
+        workspace_fit["mode"] = "anchor_base"
+    if fit_workspace:
+        if not model_path:
+            raise ValueError("fit_workspace needs model_path to sample the reachable shell")
+        ws_map, workspace_fit = fit_workspace_map(
+            clip, base_side, model_path, coverage=workspace_coverage, gl_backend="egl"
+        )
+        workspace_fit["mode"] = "workspace_map"
+        base_side.workspace_map = ws_map
 
     x0, meta = _pack_params(base_side, optimize_base_orient, optimize_axis)
     base_t0 = base_side.T_camera_base_ref[:3, 3].copy()
@@ -415,6 +652,35 @@ def optimize_side_calibration(
         )
         return stats["loss"] + prior
 
+    # A wrist→gripper convention swap is ~90-180° away from identity, far outside the
+    # basin L-BFGS-B can cross on a finite-differenced IK objective. Hand anatomy pins it
+    # down exactly when MANO joints are around; otherwise fall back to coarse-searching
+    # the 24 axis conventions and refining locally from the winner.
+    seed_search = None
+    grasp_fit = fit_retarget_R_from_grasp(clip)
+    if grasp_fit is not None:
+        R_grasp_seed, seed_search = grasp_fit
+        x0 = x0.copy()
+        x0[3:6] = Rotation.from_matrix(R_grasp_seed).as_rotvec()
+    elif seed_retarget_conventions and renderer is not None:
+        seeds = axis_convention_rotations()
+        losses = []
+        for R_seed in seeds:
+            x_seed = x0.copy()
+            x_seed[3:6] = Rotation.from_matrix(R_seed).as_rotvec()
+            losses.append(objective(x_seed))
+        best_i = int(np.argmin(losses))
+        seed_search = {
+            "mode": "axis_conventions",
+            "n_seeds": len(seeds),
+            "best_index": best_i,
+            "best_loss": float(losses[best_i]),
+            "identity_loss": float(losses[0]),
+            "best_retarget_quaternion_wxyz": [float(v) for v in mat_to_quat_wxyz(seeds[best_i])],
+        }
+        x0 = x0.copy()
+        x0[3:6] = Rotation.from_matrix(seeds[best_i]).as_rotvec()
+
     opt = minimize(objective, x0, method="L-BFGS-B", options={"maxiter": maxiter, "ftol": 1e-6})
     side_opt = _unpack_params(opt.x, base_side, meta)
     metrics_after = evaluate_clip(
@@ -438,6 +704,8 @@ def optimize_side_calibration(
         success=bool(opt.success or improved),
         message=str(opt.message),
         x_opt=opt.x.copy(),
+        seed_search=seed_search,
+        workspace_fit=workspace_fit,
     )
 
 

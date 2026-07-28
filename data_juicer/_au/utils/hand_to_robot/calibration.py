@@ -14,6 +14,25 @@ from .transforms import quat_wxyz_to_mat, se3
 
 
 @dataclass
+class WorkspaceMap:
+    """Similarity map from the human hand workspace into the arm's reachable shell.
+
+    Both centres live in the robot base frame, which is rigid w.r.t. the camera, so
+    the map stays valid while the ego camera moves::
+
+        p_base_ee = center_robot + scale * (p_base_wrist - center_human)
+
+    The anchor-based retarget cannot express this: it pins the gripper onto the human
+    hand, so targets inherit the human's reach and sit near full arm extension where
+    the reachable orientation set collapses.
+    """
+
+    center_human_base: np.ndarray  # (3,)
+    center_robot_base: np.ndarray  # (3,)
+    scale_xyz: np.ndarray  # (3,)
+
+
+@dataclass
 class SideCalibration:
     q_reference: np.ndarray
     workspace_scale_xyz: np.ndarray
@@ -24,6 +43,7 @@ class SideCalibration:
     ee_ref_world: Optional[np.ndarray] = None
     velocity_limits: Optional[np.ndarray] = None
     model_sha256: Optional[str] = None
+    workspace_map: Optional[WorkspaceMap] = None
 
 
 @dataclass
@@ -58,11 +78,24 @@ def _parse_side(cfg: dict) -> SideCalibration:
     retarget_q = cfg.get("retarget_quaternion_wxyz", [1.0, 0.0, 0.0, 0.0])
     retarget_R = quat_wxyz_to_mat(retarget_q)
     cam_base = cfg.get("camera_to_base_reference", {})
-    T_cam_base = _pose_dict_to_T(cam_base) if cam_base else se3(np.eye(3), [0.0, 0.3, -0.2])
+    # Default base: below and well in front of the camera (OpenCV axes, +Y down,
+    # +Z forward). The arm extends along its own -Z from the root, so a base nearer
+    # than ~0.6 m leaves the whole arm behind the render camera, i.e. an empty mask.
+    T_cam_base = _pose_dict_to_T(cam_base) if cam_base else se3(np.eye(3), [0.0, 0.3, 0.8])
 
     wrist_ref = cfg.get("wrist_ref_world")
     ee_ref = cfg.get("ee_ref_world")
     vel = cfg.get("velocity_limits")
+    ws = cfg.get("workspace_map")
+    ws_map = (
+        None
+        if not ws
+        else WorkspaceMap(
+            center_human_base=np.asarray(ws["center_human_base"], dtype=np.float64),
+            center_robot_base=np.asarray(ws["center_robot_base"], dtype=np.float64),
+            scale_xyz=np.asarray(ws.get("scale_xyz", [1.0, 1.0, 1.0]), dtype=np.float64),
+        )
+    )
     return SideCalibration(
         q_reference=q_ref,
         workspace_scale_xyz=scale,
@@ -73,6 +106,7 @@ def _parse_side(cfg: dict) -> SideCalibration:
         ee_ref_world=None if ee_ref is None else np.asarray(ee_ref, dtype=np.float64),
         velocity_limits=None if vel is None else np.asarray(vel, dtype=np.float64),
         model_sha256=cfg.get("model_sha256"),
+        workspace_map=ws_map,
     )
 
 
@@ -130,6 +164,13 @@ def side_to_dict(side: SideCalibration) -> dict:
         out["ee_ref_world"] = [float(x) for x in side.ee_ref_world.tolist()]
     if side.model_sha256:
         out["model_sha256"] = side.model_sha256
+    if side.workspace_map is not None:
+        ws = side.workspace_map
+        out["workspace_map"] = {
+            "center_human_base": [float(x) for x in ws.center_human_base.tolist()],
+            "center_robot_base": [float(x) for x in ws.center_robot_base.tolist()],
+            "scale_xyz": [float(x) for x in ws.scale_xyz.tolist()],
+        }
     return out
 
 

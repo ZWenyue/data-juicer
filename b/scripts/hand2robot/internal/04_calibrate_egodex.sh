@@ -12,7 +12,7 @@ EGODEX_ROOT="${EGODEX_ROOT:-/mnt/r/DATA/EgoDex/test_lerobot}"
 EPISODE="${EPISODE:-2}"
 MAX_FRAMES="${MAX_FRAMES:-120}"
 STRIDE="${STRIDE:-4}"
-VERSION="${VERSION:-egodex_v1}"
+VERSION="${VERSION:-egodex_v2}"
 REPORT_DIR="${REPORT_DIR:-$OUT_ROOT/calib_egodex_${SIDE}_ep$(printf '%06d' "$EPISODE")}"
 OUTPUT_CALIB="${OUTPUT_CALIB:-$CALIB_DIR/r1_${SIDE}_${VERSION}.yaml}"
 
