@@ -1,6 +1,9 @@
 
 # data & resources
 outputs/
+**/outputs/
+output/
+**/output/
 assets/
 
 # setup
