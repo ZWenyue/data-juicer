@@ -1,0 +1,207 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="r1_lite_arm_right">
+  <mujoco>
+    <compiler meshdir="../meshes" discardvisual="false" />
+  </mujoco>
+  <link name="right_arm_base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_base_link.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.04962739 0.04962739 0.043124996" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link1.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.039500006 0.032250006 0.043749999" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link2.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.18475027 0.042006433 0.041224081" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link3.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.119295 0.038200002 0.067592382" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link4.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.063000098 0.03299889 0.054500006" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link5.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.027500004 0.028500002 0.031500004" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_arm_link6">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_arm_link6.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.005500006 0.025131298 0.022500001" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_gripper_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_gripper_link.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.038325004 0.054157909 0.029999238" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_gripper_finger_link1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_gripper_finger_link1.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.045979824 0.034979943 0.018537533" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_gripper_finger_link2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="meshes/right_gripper_finger_link2.STL" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.04597982 0.034979943 0.018537533" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_arm_joint1" type="revolute">
+    <origin xyz="0 0 0.08605" rpy="0 0 0" />
+    <parent link="right_arm_base_link" />
+    <child link="right_arm_link1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.8798" upper="2.8798" effort="27" velocity="10.472" />
+  </joint>
+  <joint name="right_arm_joint2" type="revolute">
+    <origin xyz="0 0.03075 0.04925" rpy="0 0 0" />
+    <parent link="right_arm_link1" />
+    <child link="right_arm_link2" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="3.1416" effort="50" velocity="12.5664" />
+  </joint>
+  <joint name="right_arm_joint3" type="revolute">
+    <origin xyz="-0.3 0.00025004 0" rpy="0 0 0" />
+    <parent link="right_arm_link2" />
+    <child link="right_arm_link3" />
+    <axis xyz="0 1 0" />
+    <limit lower="-3.3161" upper="0" effort="27" velocity="10.472" />
+  </joint>
+  <joint name="right_arm_joint4" type="revolute">
+    <origin xyz="0.1747 0.00049739 0.075485" rpy="0 0 0" />
+    <parent link="right_arm_link3" />
+    <child link="right_arm_link4" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.5708" upper="1.5708" effort="14" velocity="32.9867" />
+  </joint>
+  <joint name="right_arm_joint5" type="revolute">
+    <origin xyz="0.08 -0.031498 0.0405" rpy="0 0 0" />
+    <parent link="right_arm_link4" />
+    <child link="right_arm_link5" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5708" upper="1.5708" effort="14" velocity="32.9867" />
+  </joint>
+  <joint name="right_arm_joint6" type="revolute">
+    <origin xyz="0.022503 0 -0.0405" rpy="0 0 0" />
+    <parent link="right_arm_link5" />
+    <child link="right_arm_link6" />
+    <axis xyz="1 0 0" />
+    <limit lower="-2.8798" upper="2.8798" effort="14" velocity="32.9867" />
+  </joint>
+  <joint name="right_gripper_joint" type="fixed">
+    <origin xyz="0.08165 0 0" rpy="0 0 0" />
+    <parent link="right_arm_link6" />
+    <child link="right_gripper_link" />
+  </joint>
+  <joint name="right_gripper_finger_joint1" type="prismatic">
+    <origin xyz="0.03689 0.013453 0.00012059" rpy="0 0 0" />
+    <parent link="right_gripper_link" />
+    <child link="right_gripper_finger_link1" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0.05" effort="100" velocity="0.25" />
+  </joint>
+  <joint name="right_gripper_finger_joint2" type="prismatic">
+    <origin xyz="0.03689 -0.013453 -0.00012059" rpy="0 0 0" />
+    <parent link="right_gripper_link" />
+    <child link="right_gripper_finger_link2" />
+    <axis xyz="0 1 0" />
+    <limit lower="-0.05" upper="0" effort="100" velocity="0.25" />
+  </joint>
+</robot>

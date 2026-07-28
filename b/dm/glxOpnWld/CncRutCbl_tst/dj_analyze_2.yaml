@@ -1,0 +1,60 @@
+# Data-Juicer 分析/处理配置: Galaxea Open-World Dataset — Connect_Router_Cables
+#
+# 使用自定义 DJ 算子对机器人轨迹数据进行质量分析和过滤。
+#
+# 分析模式（只计算统计量，不过滤）：
+#   /mnt/r/VENV/dj/bin/dj-analyze \
+#     --config b/dm/glxOpnWld/dj_analyze_2.yaml
+#
+# 处理模式（按阈值过滤低质量 episode）：
+#   /mnt/r/VENV/dj/bin/dj-process \
+#     --config b/dm/glxOpnWld/dj_analyze_2.yaml
+#
+# 前置步骤：先运行 convert_to_jsonl_2.py 生成 episodes_2.jsonl：
+#   /mnt/r/VENV/dj/bin/python b/dm/glxOpnWld/convert_to_jsonl_2.py
+
+project_name: 'galaxea-connect-router-cables-v2'
+dataset_path: './b/dm/glxOpnWld/episodes_2.jsonl'
+np: 4
+text_keys: 'text'
+
+export_path: './b/dm/glxOpnWld/dj_output_2/'
+
+custom_operator_paths:
+  - './b/dm/glxOpnWld/custom_ops_2.py'
+
+process:
+  # Stage A: Episode 级过滤
+  - episode_off_task_filter:
+      off_task_keywords:
+        - '冰箱'
+        - 'refrigerator'
+        - '蘑菇'
+        - 'mushroom'
+        - '西葫芦'
+        - 'zucchini'
+        - '冰红茶'
+        - 'iced tea'
+        - '钙奶'
+        - 'calcium milk'
+
+  # Stage B: 轨迹质量过滤
+  - trajectory_sal_filter:
+      min_sal: -1500.0
+
+  - trajectory_da_filter:
+      da_thresh: 0.65
+      max_misaligned_dims: 0
+
+  - trajectory_sudden_change_filter:
+      c_threshold: 8.0
+      floor_frac: 0.02
+
+  # Stage C: 质量标签统计
+  - quality_label_filter:
+      qualified_task_index: 25
+      unqualified_task_index: 9
+      min_qualified_ratio: 0.0
+
+  # Stage D: 轨迹统计（Mapper，不过滤）
+  - trajectory_stats_mapper: {}

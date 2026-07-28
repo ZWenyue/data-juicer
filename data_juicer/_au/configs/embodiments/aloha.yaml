@@ -1,0 +1,82 @@
+# ALOHA (ViperX dual-arm) → Qwen-RobotManip 80-dim unified layout
+#
+# Packed 14-D (LeRobot / GR00T modality.json):
+#   [0:6] left_arm  [6] left_grip  [7:13] right_arm  [13] right_grip
+#
+# Source joint names (info.json features.observation.state.names):
+#   waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate, gripper
+#
+# 6-DoF arm → canonical slots (no shoulder_roll):
+#   slot0 shoulder_pitch ← shoulder (j1)
+#   slot1 shoulder_roll  ← pad
+#   slot2 shoulder_yaw   ← waist (j0)
+#   slot3 elbow_pitch    ← elbow (j2)
+#   slot4 forearm_roll   ← forearm_roll (j3)
+#   slot5 wrist_pitch    ← wrist_angle (j4)
+#   slot6 wrist_roll     ← wrist_rotate (j5)
+#
+# Note: wrist ordering differs from agilex_cobot_magic (there j4/j5 are swapped
+# relative to ALOHA's anatomical names). Do not reuse that YAML for ALOHA.
+#
+# Verified against:
+#   /mnt/r/DATA/pre_train_v1/post_train/stack_bowls_three
+#   robot_type=aloha
+#
+# No chassis / torso → shared region stays empty.
+name: aloha
+
+arms:
+  left:
+    joint_map:
+      shoulder_pitch: 1   # shoulder
+      shoulder_roll: null # pad (no DoF)
+      shoulder_yaw: 0     # waist
+      elbow_pitch: 2      # elbow
+      forearm_roll: 3     # forearm_roll
+      wrist_pitch: 4      # wrist_angle
+      wrist_roll: 5       # wrist_rotate
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [0, 6]
+      action_column: action
+      action_slice: [0, 6]
+    gripper:
+      state_column: observation.state
+      state_slice: [6, 7]
+      action_column: action
+      action_slice: [6, 7]
+    eef: null
+    hand: null
+  right:
+    joint_map:
+      shoulder_pitch: 1   # shoulder
+      shoulder_roll: null # pad (no DoF)
+      shoulder_yaw: 0     # waist
+      elbow_pitch: 2      # elbow
+      forearm_roll: 3     # forearm_roll
+      wrist_pitch: 4      # wrist_angle
+      wrist_roll: 5       # wrist_rotate
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state
+      state_slice: [7, 13]
+      action_column: action
+      action_slice: [7, 13]
+    gripper:
+      state_column: observation.state
+      state_slice: [13, 14]
+      action_column: action
+      action_slice: [13, 14]
+    eef: null
+    hand: null
+
+shared: {}
+
+prompt:
+  embodiment_id: aloha
+  default_camera_view_direction: opposite side
+  camera_views:
+    observation.images.cam_high: opposite side
+    observation.images.cam_left_wrist: arm side
+    observation.images.cam_right_wrist: arm side

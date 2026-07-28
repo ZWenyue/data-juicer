@@ -1,0 +1,86 @@
+# Galaxea R1 Pro → Qwen-RobotManip 80-dim unified layout
+# Hardware j1..j7 (0-based src indices 0..6) → canonical semantic slots (identity).
+#   slot0 shoulder_pitch ← j1 (Y)
+#   slot1 shoulder_roll  ← j2 (X)
+#   slot2 shoulder_yaw   ← j3 (Z)
+#   slot3 elbow_pitch    ← j4 (Y)
+#   slot4 forearm_roll   ← j5 (Z)
+#   slot5 wrist_pitch    ← j6 (Y)
+#   slot6 wrist_roll     ← j7 (X)
+# Verified against:
+#   /mnt/r/DATA/Galaxea-Open-World-Dataset/r1pro/Put_The_Items_Into_The_Storage_Box_20250929_002_007
+# Notes:
+#   - left/right arm state & action are 7-D (vs R1 Lite 6-D).
+#   - EE pose quat is stored as xyzw in parquet feature names.
+#   - This open dataset has no action.torso.* column; torso action slots stay 0.
+name: galaxea_r1_pro
+
+arms:
+  left:
+    joint_map:
+      shoulder_pitch: 0   # j1
+      shoulder_roll: 1    # j2
+      shoulder_yaw: 2     # j3
+      elbow_pitch: 3      # j4
+      forearm_roll: 4     # j5
+      wrist_pitch: 5      # j6
+      wrist_roll: 6       # j7
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state.left_arm
+      action_column: action.left_arm
+    gripper:
+      state_column: observation.state.left_gripper
+      action_column: action.left_gripper
+    eef:
+      state_column: observation.state.left_ee_pose
+      rot_repr: quat_xyzw
+      # action EEF (camera-frame delta) deferred
+    hand: null
+  right:
+    joint_map:
+      shoulder_pitch: 0   # j1
+      shoulder_roll: 1    # j2
+      shoulder_yaw: 2     # j3
+      elbow_pitch: 3      # j4
+      forearm_roll: 4     # j5
+      wrist_pitch: 5      # j6
+      wrist_roll: 6       # j7
+    joint_sign: [1, 1, 1, 1, 1, 1, 1]
+    source:
+      state_column: observation.state.right_arm
+      action_column: action.right_arm
+    gripper:
+      state_column: observation.state.right_gripper
+      action_column: action.right_gripper
+    eef:
+      state_column: observation.state.right_ee_pose
+      rot_repr: quat_xyzw
+    hand: null
+
+shared:
+  # Shared region [58:80].
+  # Chassis state 6D = position(3) + feedback velocity(3).
+  # Chassis action is ROS twist 6D (linear xyz + angular xyz) in this dataset.
+  chassis:
+    state_columns:
+      - observation.state.chassis
+      - observation.state.chassis.velocities
+    action_column: action.chassis.velocities
+    action_source_indices: [0, 1, 2, 3, 4, 5]
+    slots: [0, 1, 2, 3, 4, 5]
+  torso:
+    state_column: observation.state.torso
+    # Absent in current r1pro open dump; packer skips missing columns.
+    action_column: action.torso.velocities
+    action_source_indices: [0, 1, 2, 3]
+    slots: [6, 7, 8, 9]
+
+prompt:
+  embodiment_id: galaxea_r1_pro
+  default_camera_view_direction: opposite side
+  camera_views:
+    observation.images.head_rgb: opposite side
+    observation.images.head_right_rgb: opposite side
+    observation.images.left_wrist_rgb: arm side
+    observation.images.right_wrist_rgb: arm side

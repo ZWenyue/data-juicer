@@ -1,0 +1,32 @@
+# Acceptance recipe: robot_state_action_alignment_filter with real LeRobot dataset
+project_name: 'accept-robot-state-action-alignment-filter'
+dataset_path: 'tests_au/ops/filter/outputs/lerobot_episodes.jsonl'
+export_path: 'tests_au/ops/filter/outputs/accept_s2_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+# Package-based operator loading (enterprise style)
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_state_action_alignment_filter:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      # Galaxea unified layout: arms are position-comparable in both state & action
+      # (left_arm 0-6, right_arm 8-14); torso/base(vel) & grippers(bimodal) excluded.
+      shared_dims: [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14]
+      action_is_delta: false
+      max_lag: 15
+      da_threshold: 0.65
+      eps_mode: 'range_frac'
+      eps_frac: 0.01
+      min_active_frames: 10
+      min_frames: 20
+      # flag_only keeps every episode and only annotates DA stats (deterministic
+      # in/out counts for acceptance); switch to episode_discard to actually drop.
+      exclusion_strategy: 'flag_only'
+      stats_export_path: 'tests_au/ops/filter/outputs/accept_s2_stats.jsonl'

@@ -1,0 +1,52 @@
+# Acceptance: Stage 5 on unified 80-dim LeRobot parquet (process_test).
+# pose_layout points at Qwen-RobotManip EEF slots:
+#   left  arm: pos[7:10]  + rot6d[10:16]
+#   right arm: pos[36:39] + rot6d[39:45]
+# Correction preset z_-90 is a known R_corr so the shell can verify p'=R p, R'=R_corr R.
+project_name: 'accept-stage5-unified80'
+dataset_path: 'tests_au/ops/mapper/outputs/stage5_unified80_pointer.jsonl'
+export_path: 'tests_au/ops/mapper/outputs/accept_stage5_unified80_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  - robot_lerobot_parquet_loader_mapper:
+      parquet_field: 'parquet_path'
+      state_key: 'states'
+      action_key: 'actions'
+      skip_if_present: true
+  - robot_base_frame_alignment_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      correction_source: 'preset'
+      preset_name: 'z_-90'
+      pose_layout:
+        - target: 'state'
+          pos: [7, 10]
+          rot: [10, 16]
+          rot_type: 'rot6d'
+          is_delta: false
+        - target: 'state'
+          pos: [36, 39]
+          rot: [39, 45]
+          rot_type: 'rot6d'
+          is_delta: false
+        # action EE slots are currently zero in process_test export; keep layout for
+        # pipeline completeness (transform is a no-op on zeros).
+        - target: 'action'
+          pos: [7, 10]
+          rot: [10, 16]
+          rot_type: 'rot6d'
+          is_delta: false
+        - target: 'action'
+          pos: [36, 39]
+          rot: [39, 45]
+          rot_type: 'rot6d'
+          is_delta: false
+      report_field: 'base_frame_alignment_report'

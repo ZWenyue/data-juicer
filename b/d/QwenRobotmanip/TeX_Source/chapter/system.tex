@@ -1,0 +1,4 @@
+\section{Deployment}
+\label{sec:deployment}
+In our deployment setup, inference is performed on a remote server with observations and actions transmitted between the robot and the server over a WiFi connection. To mitigate the latency introduced by cloud-based inference and network transmission, we adopt Real-Time Chunking (RTC)~\citep{black2026real}, which asynchronously generates the next action chunk while the robot executes the current one, effectively hiding the round-trip latency and enabling smooth real-time control.
+

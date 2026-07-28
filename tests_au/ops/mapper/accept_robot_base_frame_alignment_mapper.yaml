@@ -1,0 +1,35 @@
+# Acceptance recipe: Stage 5 (Base Frame & EEF Orientation Alignment) on synthetic EEF poses.
+# The synthetic data records poses in a misaligned world frame (forward = +y);
+# Stage 5 with preset z_-90 must re-align them so that forward = +x.
+project_name: 'accept-stage5-base-frame-alignment'
+dataset_path: 'tests_au/ops/mapper/outputs/synth_pose.jsonl'
+export_path: 'tests_au/ops/mapper/outputs/accept_stage5_result.jsonl'
+np: 1
+executor_type: default
+keep_stats_in_res_ds: true
+text_keys: 'id'
+
+# Package-based operator loading (enterprise style)
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  # ---- Stage 5: Base Frame and End-Effector Orientation Alignment ----
+  - robot_base_frame_alignment_mapper:
+      signal_source: 'top_level'
+      top_level_state_key: 'states'
+      top_level_action_key: 'actions'
+      correction_source: 'preset'
+      preset_name: 'z_-90'          # +y (recorded forward) -> +x (canonical forward)
+      pose_layout:
+        - target: 'state'           # state = [pos(3), rot6d(6)]
+          pos: [0, 3]
+          rot: [3, 9]
+          rot_type: 'rot6d'
+          is_delta: false
+        - target: 'action'          # action = [delta_rotvec(3), delta_trans(3)]
+          rot: [0, 3]
+          pos: [3, 6]
+          rot_type: 'rotvec'
+          is_delta: true
+      report_field: 'base_frame_alignment_report'

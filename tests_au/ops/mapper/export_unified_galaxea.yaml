@@ -1,0 +1,25 @@
+# Export Galaxea episodes → 80-dim unified vectors + mask under process_test.
+# dataset_path / export_path are overridden by the shell wrapper via env/sed or
+# kept relative for local accept; the shell writes a concrete config into OUT.
+project_name: 'export-unified-galaxea'
+dataset_path: 'PLACEHOLDER_POINTER'
+export_path: 'PLACEHOLDER_EXPORT'
+np: 8
+executor_type: default
+keep_stats_in_res_ds: true
+export_original_dataset: false
+text_keys: 'id'
+
+custom_operator_paths:
+  - 'data_juicer/_au'
+
+process:
+  # Unified mapper reads parquet directly; skip 16-dim loader to save export size.
+  - robot_unified_state_mapper:
+      embodiment: 'galaxea_r1_lite'
+      parquet_field: 'parquet_path'
+      state_key: 'unified_states'
+      action_key: 'unified_actions'
+      mask_key: 'unified_dim_mask'
+      skip_if_present: false
+      write_meta_occupancy: true
