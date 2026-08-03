@@ -180,6 +180,7 @@ class VideoHandReconstructionHaworMapper(Mapper):
         img_focal: float,
         frame_file_paths: list,
         single_image: bool = False,
+        device=None,
     ) -> dict:
         """
         Performs HAWOR 3D hand reconstruction on detected and tracked hand regions.
@@ -192,6 +193,7 @@ class VideoHandReconstructionHaworMapper(Mapper):
             frame_file_paths (list): List of file paths readable by HaWoR
                 (pre-materialized on disk if input was bytes).
             single_image (bool): Flag for single-image processing mode.
+            device: Torch device for inference inputs; defaults to the model's device.
 
         Returns:
             dict: Reconstructed parameters ('left' and 'right' hand results).
@@ -264,7 +266,14 @@ class VideoHandReconstructionHaworMapper(Mapper):
                 else:
                     do_flip = True
 
-                results = model.inference(img_ck, boxes_ck, img_focal=img_focal, img_center=img_center, do_flip=do_flip)
+                results = model.inference(
+                    img_ck,
+                    boxes_ck,
+                    img_focal=img_focal,
+                    img_center=img_center,
+                    device=device,
+                    do_flip=do_flip,
+                )
 
                 data_out = {
                     "init_root_orient": results["pred_rotmat"][None, :, 0],  # (B, T, 3, 3)
@@ -411,6 +420,8 @@ class VideoHandReconstructionHaworMapper(Mapper):
 
         hawor_model, model_cfg, mano_right, mano_left = get_model(self.model_key, rank, self.use_cuda())
         hand_det_model = get_model(self.det_model_key, rank, self.use_cuda())
+        # Always follow model placement (get_model may map rank via rank % n_gpu).
+        device = next(hawor_model.parameters()).device
 
         videos_frames = sample[self.frame_field]
         sample[Fields.meta][self.tag_field_name] = []
@@ -474,6 +485,7 @@ class VideoHandReconstructionHaworMapper(Mapper):
                     img_focal,
                     frame_file_paths=frame_file_paths,
                     single_image=(N == 1),
+                    device=device,
                 )
 
             # Collect per-hand results in structured format

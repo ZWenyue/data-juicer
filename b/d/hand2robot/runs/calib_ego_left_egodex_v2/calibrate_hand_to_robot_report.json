@@ -1,0 +1,144 @@
+{
+  "decision": "go",
+  "side": "left",
+  "source": "sample",
+  "num_frames": 9,
+  "init_calib": "b/d/hand2robot/calibration/r1_both_v1.yaml",
+  "output_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_left_fix2.yaml",
+  "model": "/mnt/r/share/zwy/Projects/data-juicer/b/d/urdf/generated/r1_lite_arm_left.xml",
+  "optimizer_message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+  "retarget_seed_search": {
+    "n_seeds": 24,
+    "best_index": 10,
+    "best_loss": 1.197674251370698,
+    "identity_loss": 2.0249069937887634,
+    "best_retarget_quaternion_wxyz": [
+      0.5,
+      0.5,
+      -0.5,
+      0.5
+    ]
+  },
+  "workspace_fit": {
+    "center_hand_camera": [
+      0.07033583637482176,
+      0.15558375542368685,
+      0.5568079726153468
+    ],
+    "center_robot_base": [
+      0.0040575319447059555,
+      -0.0007405832831369084,
+      0.38280380336444586
+    ],
+    "camera_to_base_translation_m": [
+      0.0662783044301158,
+      0.15484317214054993,
+      0.9396117759797926
+    ],
+    "hand_spread_radius_m": 0.1155927105722155,
+    "robot_shell_radius_m": 0.5881386541632204,
+    "mode": "anchor_base"
+  },
+  "metrics_before": {
+    "num_frames": 9,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 1.5929154992931546e-16,
+    "median_reprojection_error_px": 77.18530418757683,
+    "mean_reprojection_error_px": 77.34063676966554,
+    "ik_success_rate": 0.0,
+    "median_ik_position_error_m": 0.07759635673878469,
+    "median_ik_orientation_error_rad": 0.7856927919919753,
+    "loss": 2.041635349811099
+  },
+  "metrics_after": {
+    "num_frames": 9,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 2.085793645453732,
+    "median_reprojection_error_px": 38.133208664076435,
+    "mean_reprojection_error_px": 42.7155585162588,
+    "ik_success_rate": 0.6666666666666666,
+    "median_ik_position_error_m": 0.004528781028979467,
+    "median_ik_orientation_error_rad": 0.022760584624265803,
+    "loss": 0.5522452242831286
+  },
+  "p1_human_hand": null,
+  "side_params": {
+    "q_reference": [
+      0.0,
+      1.2,
+      -1.5,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "workspace_scale_xyz": [
+      2.0,
+      0.8585289146237792,
+      1.0605618550869758
+    ],
+    "axis_alignment": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "retarget_quaternion_wxyz": [
+      0.5037199045686819,
+      0.4960496476700636,
+      -0.4961883754776663,
+      0.5039822425726508
+    ],
+    "camera_to_base_reference": {
+      "translation_m": [
+        0.03800214847225683,
+        0.1529474158744485,
+        0.9388679802834524
+      ],
+      "quaternion_wxyz": [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "velocity_limits": [
+      2.0,
+      2.0,
+      2.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    "wrist_ref_world": [
+      0.3039285839,
+      0.2157331407,
+      0.3086042702
+    ],
+    "ee_ref_world": [
+      0.3039285839,
+      0.2157331407,
+      0.3086042702
+    ]
+  },
+  "galaxea_meta": null,
+  "galaxea_fk_ik": null,
+  "egodex_meta": null,
+  "checks": {
+    "optimizer_ok": true,
+    "loss_improved_or_equal": true,
+    "reprojection_improved_or_equal": true,
+    "output_written": true,
+    "calib_ik_success_ge_0_9": false
+  }
+}

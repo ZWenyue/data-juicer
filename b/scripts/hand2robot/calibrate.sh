@@ -48,7 +48,7 @@ calibrate_one_side() {
     egodex)
       export EGODEX_ROOT="${EGODEX_ROOT:-${DATASET:-/mnt/r/DATA/EgoDex/test_lerobot}}"
       export EPISODE="${EPISODE:-2}"
-      export VERSION="${VERSION:-egodex_v1}"
+      export VERSION="${VERSION:-egodex_v2}"
       export OUTPUT_CALIB="${OUTPUT_CALIB_OVERRIDE:-$CALIB_DIR/r1_${side}_${VERSION}.yaml}"
       echo "=== calibrate SOURCE=egodex root=$EGODEX_ROOT episode=$EPISODE side=$side"
       bash "$INTERNAL/04_calibrate_egodex.sh"
@@ -85,11 +85,11 @@ if [[ "$SIDE" == "both" ]]; then
   calibrate_one_side right
   echo
   echo "Per-side YAMLs written. For dual-arm process use:"
-  echo "  CALIBRATION_PATH=$CALIB_DIR/r1_both_egodex_v1.yaml"
+  echo "  CALIBRATION_PATH=$CALIB_DIR/r1_both_egodex_v2.yaml"
   echo "  (or merge left/right into a both YAML)"
 else
   calibrate_one_side "$SIDE"
   echo
   echo "Calibrate done. Use this YAML in process.sh:"
-  echo "  CALIBRATION_PATH=${OUTPUT_CALIB:-$CALIB_DIR/r1_${SIDE}_egodex_v1.yaml}"
+  echo "  CALIBRATION_PATH=${OUTPUT_CALIB:-$CALIB_DIR/r1_${SIDE}_egodex_v2.yaml}"
 fi

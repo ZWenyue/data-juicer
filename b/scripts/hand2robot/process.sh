@@ -12,11 +12,11 @@
 #     bash b/scripts/hand2robot/process.sh
 #
 #   DATASET=/path/to/videos.jsonl \
-#   CALIBRATION_PATH=b/d/hand2robot/calibration/r1_right_egodex_v1.yaml \
+#   CALIBRATION_PATH=b/d/hand2robot/calibration/r1_right_egodex_v2.yaml \
 #   SIDE=right \
 #     bash b/scripts/hand2robot/process.sh
 #
-#   SIDE=both CALIBRATION_PATH=b/d/hand2robot/calibration/r1_both_egodex_v1.yaml \
+#   SIDE=both CALIBRATION_PATH=b/d/hand2robot/calibration/r1_both_egodex_v2.yaml \
 #   DATASET=... bash b/scripts/hand2robot/process.sh
 #
 # Env:
@@ -44,9 +44,9 @@ fi
 # Default calib for this SIDE
 if [[ -z "${CALIBRATION_PATH:-}" ]]; then
   if [[ "$SIDE" == "both" ]]; then
-    CALIBRATION_PATH="$CALIB_DIR/r1_both_egodex_v1.yaml"
+    CALIBRATION_PATH="$CALIB_DIR/r1_both_egodex_v2.yaml"
   else
-    CALIBRATION_PATH="$CALIB_DIR/r1_${SIDE}_egodex_v1.yaml"
+    CALIBRATION_PATH="$CALIB_DIR/r1_${SIDE}_egodex_v2.yaml"
   fi
 fi
 [[ -f "$CALIBRATION_PATH" ]] || {
@@ -76,6 +76,17 @@ export RUN_DIR
 export SIDE
 bash "$INTERNAL/07_process_ego_to_robot.sh"
 
+# Hard check: robot render must have produced images (not just ego frames/)
+n_robot=$(find "$RUN_DIR/robot_frames" -type f \( -name '*.png' -o -name '*.jpg' \) 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${n_robot}" -lt 1 ]]; then
+  echo "ERROR: no robot_render frames under $RUN_DIR/robot_frames" >&2
+  echo "  You are looking at ego frames/ if you still see human hands." >&2
+  echo "  Check dj-process logs under $RUN_DIR/*/logs/ (MoGe/HaWoR/MegaSaM may have failed)." >&2
+  echo "  Expected MoGe model_path=Ruicheng/moge-2-vitl (see vla_pipeline.py)." >&2
+  exit 1
+fi
+echo "robot_frames ok: $n_robot images"
+
 LEROBOT_DIR="$RUN_DIR/lerobot_dataset"
 if [[ "${SKIP_FINALIZE:-0}" != "1" ]]; then
   echo "=== [3/3] finalize LeRobot dataset → $LEROBOT_DIR"
@@ -101,6 +112,7 @@ fi
 echo
 echo "Process done."
 echo "  jsonl:     $JSONL"
+echo "  processed: $RUN_DIR/processed.jsonl"
 echo "  frames:    $RUN_DIR/frames"
 echo "  robot:     $RUN_DIR/robot_frames"
 echo "  lerobot:   $LEROBOT_DIR"

@@ -1,0 +1,146 @@
+{
+  "decision": "go",
+  "side": "right",
+  "source": "sample",
+  "num_frames": 54,
+  "init_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_v1.yaml",
+  "output_calib": "/mnt/r/share/zwy/Projects/data-juicer/b/d/hand2robot/calibration/r1_right_egodex_v3.yaml",
+  "model": "/mnt/r/share/zwy/Projects/data-juicer/b/d/urdf/generated/r1_lite_arm_right.xml",
+  "optimizer_message": "ABNORMAL: ",
+  "retarget_seed_search": {
+    "mode": "grasp_frame",
+    "n_frames": 54,
+    "dispersion_deg_median": 4.050099840894074,
+    "dispersion_deg_p90": 11.317510450798432,
+    "retarget_quaternion_wxyz": [
+      0.006717613466223459,
+      -0.017217131428534697,
+      0.737515504550641,
+      0.6750772730599843
+    ]
+  },
+  "workspace_fit": {
+    "center_hand_camera": [
+      0.13170558052149134,
+      0.16334865025218676,
+      0.45625653381685116
+    ],
+    "center_robot_base": [
+      0.0040575319447059555,
+      -0.0007405832831369084,
+      0.38280380336444586
+    ],
+    "camera_to_base_translation_m": [
+      0.12764804857678538,
+      0.16260806696904984,
+      0.839060337181297
+    ],
+    "hand_spread_radius_m": 0.15777797383890277,
+    "robot_shell_radius_m": 0.5881386541632204,
+    "mode": "anchor_base"
+  },
+  "metrics_before": {
+    "num_frames": 54,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 1.3074964397449223e-16,
+    "median_grasp_orientation_error_rad": 3.090804889700285,
+    "median_reprojection_error_px": 87.44552383543221,
+    "mean_reprojection_error_px": 76.44226067110526,
+    "ik_success_rate": 0.5555555555555556,
+    "median_ik_position_error_m": 0.004528511102305809,
+    "median_ik_orientation_error_rad": 0.033490963740145624,
+    "loss": 10.872653381455057
+  },
+  "metrics_after": {
+    "num_frames": 54,
+    "median_reach_violation_m": 0.0,
+    "median_cam_rot_err_rad": 3.128157645685542,
+    "median_grasp_orientation_error_rad": 0.07068709113513172,
+    "median_reprojection_error_px": 60.73820628979582,
+    "mean_reprojection_error_px": 66.27988767203576,
+    "ik_success_rate": 0.2962962962962963,
+    "median_ik_position_error_m": 0.030692874893840746,
+    "median_ik_orientation_error_rad": 0.27290028562938634,
+    "loss": 1.2987969064572715
+  },
+  "p1_human_hand": null,
+  "side_params": {
+    "q_reference": [
+      0.0,
+      1.2,
+      -1.5,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "workspace_scale_xyz": [
+      0.7999999161536837,
+      0.7999998903373537,
+      0.7000004684367481
+    ],
+    "axis_alignment": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "retarget_quaternion_wxyz": [
+      0.0067174534311691065,
+      -0.01721687855485568,
+      0.7375153774479296,
+      0.6750774199601591
+    ],
+    "camera_to_base_reference": {
+      "translation_m": [
+        0.12764901241071636,
+        0.16260873307418058,
+        0.8390613240343622
+      ],
+      "quaternion_wxyz": [
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    "velocity_limits": [
+      2.0,
+      2.0,
+      2.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    "wrist_ref_world": [
+      0.1099506095,
+      0.2118887454,
+      0.3386412859
+    ],
+    "ee_ref_world": [
+      0.1099506095,
+      0.2118887454,
+      0.3386412859
+    ]
+  },
+  "galaxea_meta": null,
+  "galaxea_fk_ik": null,
+  "egodex_meta": null,
+  "checks": {
+    "optimizer_ok": true,
+    "loss_improved_or_equal": true,
+    "reprojection_improved_or_equal": true,
+    "output_written": true,
+    "calib_ik_success_ge_0_9": false
+  }
+}

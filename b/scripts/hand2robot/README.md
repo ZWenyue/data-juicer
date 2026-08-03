@@ -62,13 +62,25 @@ DATASET=/mnt/r/DATA/EgoDex/test_lerobot SIDE=both MAX_VIDEOS=2 \
 | `MAX_VIDEOS` | 全部 | 只处理前 N 条视频 |
 | `OFFSET` | 0 | 跳过前 N 条 |
 | `RUN_DIR` | `runs/process_${SIDE}_时间戳` | 本次输出目录 |
+| `FRAME_NUM` | `30` | uniform 抽帧数量（勿用全量 keyframes） |
+| `MOGE_MODEL_PATH` | `Ruicheng/moge-2-vitl` | 与 `vla_pipeline.py` 一致 |
+| `MANO_RIGHT_PATH` / `MANO_LEFT_PATH` | `/mnt/r/share/zwy/Projects/mano_v1_2/models/...` | MANO |
 | `SKIP_FINALIZE` | 0 | 设为 1 则只写 staging |
 | `BUILD_VLA_MANIFEST` | 0 | 设为 1 额外写 VLA A/B manifest |
 | `MUJOCO_GL` | `egl` | MuJoCo 后端 |
 
+**看机器人画面请打开 `RUN_DIR/robot_frames/`**，不要看 `frames/`（那是原始人手抽帧）。
+
+权重对齐说明（与 `demos/.../vla_pipeline.py` 一致）：
+
+- MoGe：`Ruicheng/moge-2-vitl`（HF cache，不是本地 `moge-2-vitl-normal/model.pt`）
+- HaWoR：`~/.cache/data_juicer/models/HaWor/`
+- MANO：`/mnt/r/share/zwy/Projects/mano_v1_2/models/`
+
 产物（在 `RUN_DIR/`）：
 
 - `input_dataset.jsonl` — 本次实际喂给 pipeline 的样本
+- `processed.jsonl` — Data-Juicer 处理后的样本落盘（`export_path` 必须带后缀）
 - `frames/` / `robot_frames/` — 原帧 / 机器人合成帧
 - `lerobot_dataset/` — 最终 LeRobot（finalize 后有 `meta/info.json`）
 
@@ -95,6 +107,7 @@ bash b/scripts/hand2robot/check.sh smoke
 ## 注意
 
 1. 全链路仍走 recipe：抽帧 → MoGe → HaWoR → MegaSaM → action → smooth → render → caption(stub) → export。需相应权重与环境。
-2. EgoDex 的 300-D 手势真值目前用于**标定**；`process.sh` 从视频重新重建手，不直接读 parquet state。
-3. 生产 caption 请把 recipe 里的 stub 换成真实 VLM caption mapper。
-4. 低层脚本在 `internal/`，一般无需直接调用。
+2. **MegaSaM 必须用 Ray + conda `mega-sam`**：`lietorch` / `droid_backends` 不能装进主环境 `data_juicer`。recipe 已设 `executor_type: ray` 与 `runtime_env: {conda: mega-sam}`；`07_process` 会在需要时自动 `ray start --head`。环境搭建见 `b/vla_pipeline_env_setup.md`。
+3. EgoDex 的 300-D 手势真值目前用于**标定**；`process.sh` 从视频重新重建手，不直接读 parquet state。
+4. 生产 caption 请把 recipe 里的 stub 换成真实 VLM caption mapper。
+5. 低层脚本在 `internal/`，一般无需直接调用。

@@ -193,7 +193,13 @@ class VideoHandToRobotRenderMapper(Mapper):
     def _map_gripper(self, gripper_state: float) -> float:
         return map_gripper_to_finger(gripper_state)
 
-    def _retarget_state_to_ee(self, smoothed_state: Sequence[float], hand_side: str, clip_idx: int) -> np.ndarray:
+    def _retarget_state_to_ee(
+        self,
+        smoothed_state: Sequence[float],
+        hand_side: str,
+        clip_idx: int,
+        T_world_base: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """Map smoothed world-frame wrist state → T_world_ee."""
         side_cal = self.calibration.get_side(hand_side)
         key = (clip_idx, hand_side)
@@ -207,6 +213,7 @@ class VideoHandToRobotRenderMapper(Mapper):
             side_cal,
             wrist_ref_world=wrist_ref,
             ee_ref_world=side_cal.ee_ref_world if side_cal.ee_ref_world is not None else wrist_ref,
+            T_world_base=T_world_base,
         )
 
     def _compute_base_poses(
@@ -538,7 +545,9 @@ class VideoHandToRobotRenderMapper(Mapper):
     # ------------------------------------------------------------------
     def process_single(self, sample, rank=None):
         meta = sample.setdefault(Fields.meta, {})
-        frames = meta.get(self.frame_field, []) or []
+        # VideoExtractFramesMapper writes frames as a top-level column, while
+        # tagging ops write into meta; accept either location.
+        frames = meta.get(self.frame_field, []) or sample.get(self.frame_field, []) or []
         hawor = meta.get(self.hand_reconstruction_field, []) or []
         actions = meta.get(self.hand_action_field, []) or []
         cameras = meta.get(self.camera_calibration_field, []) or []
@@ -675,8 +684,8 @@ class VideoHandToRobotRenderMapper(Mapper):
                     hand_mask_total |= hand_mask
 
                     state = runtime["states"][t]
-                    T_world_ee = self._retarget_state_to_ee(state, hand_side, clip_idx)
                     T_world_base, T_camera_base = self._compute_base_poses(cam_c2w, frame_id, hand_side)
+                    T_world_ee = self._retarget_state_to_ee(state, hand_side, clip_idx, T_world_base=T_world_base)
                     T_base_ee = invert_T(T_world_base) @ T_world_ee
                     finger_pos = self._map_gripper(float(state[7]) if len(state) > 7 else 0.0)
 

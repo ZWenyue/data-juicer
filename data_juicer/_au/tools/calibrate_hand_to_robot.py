@@ -103,7 +103,21 @@ def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p.add_argument("--w-uv", type=float, default=2e-4)
     p.add_argument("--w-ik", type=float, default=1.0)
     p.add_argument("--w-pos", type=float, default=1.0)
-    p.add_argument("--w-rot", type=float, default=0.25)
+    p.add_argument("--w-rot", type=float, default=0.0, help="Identity prior on retarget_R, not a data residual")
+    p.add_argument("--w-ik-rot", type=float, default=1.0, help="IK orientation residual: can the arm reach it")
+    p.add_argument("--w-grasp", type=float, default=1.0, help="Palm-frame residual: is the gripper held like the hand")
+    p.add_argument("--no-seed-retarget-conventions", action="store_true")
+    p.add_argument(
+        "--anchor-base",
+        action="store_true",
+        help="Place the arm base so its workspace centre sits on the hand; keeps the robot on task",
+    )
+    p.add_argument(
+        "--fit-workspace",
+        action="store_true",
+        help="Move targets into the arm's shell instead; solves IK but shifts the robot off task",
+    )
+    p.add_argument("--workspace-coverage", type=float, default=0.9)
     return p.parse_args(argv)
 
 
@@ -223,10 +237,13 @@ def main(argv: Optional[list] = None) -> int:
 
     weights = CalibWeights(
         w_pos=args.w_pos,
-        w_rot=0.05 if is_egodex else args.w_rot,  # EgoDex wrist rpy noisy vs gripper frame
+        w_rot=args.w_rot,
         w_uv=args.w_uv,
         w_ik=args.w_ik if args.model else 0.0,
-        w_base_reg=0.02 if is_egodex else (5.0 if is_galaxea else 0.1),
+        w_ik_rot=args.w_ik_rot if args.model else 0.0,
+        w_grasp=args.w_grasp,
+        # Anchored bases are already where we want them; hold them there.
+        w_base_reg=2.0 if args.anchor_base else (0.02 if is_egodex else (5.0 if is_galaxea else 0.1)),
     )
 
     result = optimize_side_calibration(
@@ -238,6 +255,10 @@ def main(argv: Optional[list] = None) -> int:
         optimize_axis=args.optimize_axis,
         model_path=str(args.model) if args.model else None,
         maxiter=args.maxiter,
+        seed_retarget_conventions=not args.no_seed_retarget_conventions,
+        fit_workspace=args.fit_workspace,
+        workspace_coverage=args.workspace_coverage,
+        anchor_base=args.anchor_base,
     )
 
     result.calibration.version_name = args.output_calib.stem
@@ -254,6 +275,8 @@ def main(argv: Optional[list] = None) -> int:
         "output_calib": str(args.output_calib),
         "model": str(args.model) if args.model else None,
         "optimizer_message": result.message,
+        "retarget_seed_search": result.seed_search,
+        "workspace_fit": result.workspace_fit,
         "metrics_before": result.metrics_before,
         "metrics_after": result.metrics_after,
         "p1_human_hand": p1 if is_egodex else None,

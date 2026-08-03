@@ -9,8 +9,8 @@ mujoco_camera_adapter:
   - 0.0
   - 0.0
   quaternion_wxyz:
-  - 0.0
   - 1.0
+  - 0.0
   - 0.0
   - 0.0
 sides:

@@ -50,7 +50,9 @@ python -m data_juicer._au.tools.calibrate_hand_to_robot \
   --n-anchors "${N_ANCHORS:-8}" \
   --gl-backend "$MUJOCO_GL" \
   ${OPTIMIZE_BASE_ORIENT:+--optimize-base-orient} \
-  ${OPTIMIZE_AXIS:+--optimize-axis}
+  ${OPTIMIZE_AXIS:+--optimize-axis} \
+  ${FIT_WORKSPACE:+--fit-workspace} \
+  ${ANCHOR_BASE:+--anchor-base}
 
 echo "Report: $REPORT_DIR/calibrate_hand_to_robot_report.json"
 echo "YAML:   $OUTPUT_CALIB"

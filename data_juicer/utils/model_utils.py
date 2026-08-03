@@ -740,14 +740,24 @@ def prepare_hawor_model(hawor_model_path, hawor_config_path, mano_right_path, ma
     if not os.path.exists(hawor_model_path):
         hawor_model_dir = os.path.join(DJMC, "HaWor")
         os.makedirs(hawor_model_dir, exist_ok=True)
-        hawor_model_path = os.path.join(hawor_model_dir, "hawor.ckpt")
-        subprocess.run(["wget", BACKUP_MODEL_LINKS["hawor_model_path"], "-O", hawor_model_path], check=True)
+        cached = os.path.join(hawor_model_dir, "hawor.ckpt")
+        # Relative names like "hawor.ckpt" miss CWD; reuse cache instead of
+        # re-wget every Ray worker (races corrupt the 3GB file mid-download).
+        if os.path.exists(cached) and os.path.getsize(cached) > 0:
+            hawor_model_path = cached
+        else:
+            hawor_model_path = cached
+            subprocess.run(["wget", BACKUP_MODEL_LINKS["hawor_model_path"], "-O", hawor_model_path], check=True)
 
     if not os.path.exists(hawor_config_path):
         hawor_model_dir = os.path.join(DJMC, "HaWor")
         os.makedirs(hawor_model_dir, exist_ok=True)
-        hawor_config_path = os.path.join(hawor_model_dir, "model_config.yaml")
-        subprocess.run(["wget", BACKUP_MODEL_LINKS["hawor_config_path"], "-O", hawor_config_path], check=True)
+        cached_cfg = os.path.join(hawor_model_dir, "model_config.yaml")
+        if os.path.exists(cached_cfg) and os.path.getsize(cached_cfg) > 0:
+            hawor_config_path = cached_cfg
+        else:
+            hawor_config_path = cached_cfg
+            subprocess.run(["wget", BACKUP_MODEL_LINKS["hawor_config_path"], "-O", hawor_config_path], check=True)
 
     model_cfg = get_config(hawor_config_path, update_cachedir=True)
 
